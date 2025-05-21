@@ -1,7 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"idm/database"
+)
 
 func main() {
-	fmt.Println("Hello, Go.")
+	database.ConnectDb()
 }
