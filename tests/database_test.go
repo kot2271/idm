@@ -15,8 +15,10 @@ import (
 
 func Test_GetConfig_NoEnvFile(t *testing.T) {
 	// Удаляем переменные окружения для чистоты теста
-	os.Unsetenv("DB_DRIVER_NAME")
-	os.Unsetenv("DB_DSN")
+	err := os.Unsetenv("DB_DRIVER_NAME")
+	require.NoError(t, err)
+	err = os.Unsetenv("DB_DSN")
+	require.NoError(t, err)
 
 	// Путь к существующему .env файлу в корне проекта
 	// envFilePath := filepath.Join("..", ".env")
@@ -31,8 +33,10 @@ func Test_GetConfig_NoEnvFile(t *testing.T) {
 
 func Test_GetConfig_NoVarsInEnvAndDotEnv(t *testing.T) {
 	// Убедимся, что переменные окружения не заданы
-	os.Unsetenv("DB_DRIVER_NAME")
-	os.Unsetenv("DB_DSN")
+	err := os.Unsetenv("DB_DRIVER_NAME")
+	require.NoError(t, err)
+	err = os.Unsetenv("DB_DSN")
+	require.NoError(t, err)
 
 	// Создаем временную директорию
 	tempDir := t.TempDir()
@@ -41,7 +45,7 @@ func Test_GetConfig_NoVarsInEnvAndDotEnv(t *testing.T) {
 	envFilePath := filepath.Join(tempDir, ".env")
 
 	// Создаем пустой .env файл (или без нужных переменных)
-	err := os.WriteFile(envFilePath, []byte(""), 0644)
+	err = os.WriteFile(envFilePath, []byte(""), 0644)
 	assert.NoError(t, err, "Не удалось создать временный .env файл")
 
 	cfg := common.GetConfig(envFilePath)
@@ -62,8 +66,10 @@ func Test_GetConfig_EnvVarsPresent_ButNotInDotEnv(t *testing.T) {
 	assert.NoError(t, err, "Не удалось создать временный .env файл")
 
 	// Устанавливаем переменные окружения
-	os.Setenv("DB_DRIVER_NAME", "postgres")
-	os.Setenv("DB_DSN", "host=localhost port=5432 user=postgres password=1234 dbname=mydb sslmode=disable")
+	err = os.Setenv("DB_DRIVER_NAME", "postgres")
+	require.NoError(t, err)
+	err = os.Setenv("DB_DSN", "host=localhost port=5432 user=postgres password=1234 dbname=mydb sslmode=disable")
+	require.NoError(t, err)
 
 	// Вызываем GetConfig с путём к тестовому .env
 	cfg := common.GetConfig(envFilePath)
@@ -89,8 +95,10 @@ func Test_ConfigPrioritizesEnv_OverDotEnv(t *testing.T) {
 	assert.NoError(t, err, "Не удалось создать тестовый .env файл")
 
 	// Устанавливаем другие значения в окружении
-	os.Setenv("DB_DRIVER_NAME", "postgres")
-	os.Setenv("DB_DSN", "host=localhost port=5432 user=postgres password=1234 dbname=mydb sslmode=disable")
+	err = os.Setenv("DB_DRIVER_NAME", "postgres")
+	require.NoError(t, err)
+	err = os.Setenv("DB_DSN", "host=localhost port=5432 user=postgres password=1234 dbname=mydb sslmode=disable")
+	require.NoError(t, err)
 
 	cfg := common.GetConfig(envFilePath)
 	assert.Equal(t, "postgres", cfg.DbDriverName)
@@ -113,8 +121,10 @@ func Test_GetConfig_LoadsFromDotEnv_WhenNoConflictingEnvVars(t *testing.T) {
 	assert.NoError(t, err, "Не удалось создать тестовый .env файл")
 
 	// Убеждаемся, что переменные окружения не установлены
-	os.Unsetenv("DB_DRIVER_NAME")
-	os.Unsetenv("DB_DSN")
+	err = os.Unsetenv("DB_DRIVER_NAME")
+	require.NoError(t, err)
+	err = os.Unsetenv("DB_DSN")
+	require.NoError(t, err)
 
 	// Переходим в временную директорию, чтобы относительный путь ".env" работал
 	oldWd, _ := os.Getwd()
@@ -158,8 +168,10 @@ func Test_ConnectDb_WithInvalidConfig_ShouldError(t *testing.T) {
 }
 
 func Test_ConnectDb_WithValidConfig_ShouldSucceed(t *testing.T) {
-	os.Unsetenv("DB_DRIVER_NAME")
-	os.Unsetenv("DB_DSN")
+	err := os.Unsetenv("DB_DRIVER_NAME")
+	require.NoError(t, err)
+	err = os.Unsetenv("DB_DSN")
+	require.NoError(t, err)
 
 	envFilePath := filepath.Join("..", ".env")
 
