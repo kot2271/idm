@@ -2,8 +2,13 @@ package main
 
 import (
 	"idm/database"
+	"log"
 )
 
 func main() {
-	database.ConnectDb()
+	db, err := database.ConnectDb()
+	if err != nil {
+		log.Fatalf("Connection error: %v", err)
+	}
+	_ = db
 }
