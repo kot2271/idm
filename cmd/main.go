@@ -1,7 +1,7 @@
 package main
 
 import (
-	"idm/database"
+	"idm/inner/database"
 	"log"
 )
 
