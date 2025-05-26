@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS role (
     name TEXT NOT NULL,
     description TEXT,
     status BOOLEAN DEFAULT TRUE,
-    parent_id BIGINT REFERENCES role(id),
+    parent_id BIGINT REFERENCES role(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

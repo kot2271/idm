@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"idm/database"
 	"idm/inner/common"
+	"idm/inner/database"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
