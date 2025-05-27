@@ -15,7 +15,7 @@ func TestRoleRepository_CRUD(t *testing.T) {
 	clearTables()
 
 	// Root role без родителя
-	rootRole := &role.RoleEntity{
+	rootRole := &role.Entity{
 		Name:   "Root",
 		Desc:   "Root of all roles",
 		Status: true,
@@ -23,7 +23,7 @@ func TestRoleRepository_CRUD(t *testing.T) {
 	}
 
 	// Дочерняя роль Admin, ссылается на Root
-	adminRole := &role.RoleEntity{
+	adminRole := &role.Entity{
 		Name:     "Admin",
 		Desc:     "Administrator role",
 		Status:   true,
@@ -31,7 +31,7 @@ func TestRoleRepository_CRUD(t *testing.T) {
 	}
 
 	// Guest, ссылается на Admin
-	guestRole := &role.RoleEntity{
+	guestRole := &role.Entity{
 		Name:     "Guest",
 		Desc:     "Read-only role",
 		Status:   false,
@@ -83,8 +83,8 @@ func TestRoleRepository_CRUD(t *testing.T) {
 
 	t.Run("DeleteByIds", func(t *testing.T) {
 		// Добавляем две роли для массового удаления
-		aRole := &role.RoleEntity{Name: "Temporary", Desc: "Test role", Status: true}
-		bRole := &role.RoleEntity{Name: "Contractor", Desc: "External role", Status: true}
+		aRole := &role.Entity{Name: "Temporary", Desc: "Test role", Status: true}
+		bRole := &role.Entity{Name: "Contractor", Desc: "External role", Status: true}
 		_ = repo.Add(aRole)
 		_ = repo.Add(bRole)
 

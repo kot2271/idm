@@ -20,7 +20,7 @@ func TestEmployeeRepository_CRUD(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Создаем сотрудника
-	emp := &employee.EmployeeEntity{
+	emp := &employee.Entity{
 		Name:       "John Doe",
 		Email:      "john@example.com",
 		Position:   "Developer",
@@ -28,7 +28,7 @@ func TestEmployeeRepository_CRUD(t *testing.T) {
 		RoleId:     roleID,
 	}
 
-	emp2 := &employee.EmployeeEntity{
+	emp2 := &employee.Entity{
 		Name:       "Rick Sanchez",
 		Email:      "rick@example.com",
 		Position:   "Manager",
@@ -80,8 +80,8 @@ func TestEmployeeRepository_CRUD(t *testing.T) {
 
 	t.Run("DeleteByIds", func(t *testing.T) {
 		// Добавляем двух сотрудников
-		e1 := &employee.EmployeeEntity{Name: "Alice", Email: "alice@example.com", RoleId: roleID}
-		e2 := &employee.EmployeeEntity{Name: "Bob", Email: "bob@example.com", RoleId: roleID}
+		e1 := &employee.Entity{Name: "Alice", Email: "alice@example.com", RoleId: roleID}
+		e2 := &employee.Entity{Name: "Bob", Email: "bob@example.com", RoleId: roleID}
 		_ = repo.Add(e1)
 		_ = repo.Add(e2)
 
