@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -12,6 +13,20 @@ import (
 // объявляем структуру мок-репозитория
 type MockRepo struct {
 	mock.Mock
+}
+
+type MockTx struct {
+	mock.Mock
+}
+
+func (m *MockTx) Commit() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
+func (m *MockTx) Rollback() error {
+	args := m.Called()
+	return args.Error(0)
 }
 
 // объявляем структуру Stub-репозитория
@@ -35,6 +50,28 @@ func (m *MockRepo) Add(employee *Entity) error {
 
 func (s *StubRepo) Add(entity *Entity) error {
 	return nil
+}
+
+func (m *MockRepo) AddWithTransaction(tx *sqlx.Tx, employee *Entity) error {
+	args := m.Called(tx, employee)
+	return args.Error(0)
+}
+
+func (m *MockRepo) BeginTransaction() (*sqlx.Tx, error) {
+	args := m.Called()
+	var tx *sqlx.Tx
+	if val := args.Get(0); val != nil {
+		tx = val.(*sqlx.Tx)
+	}
+	return tx, args.Error(1)
+}
+
+func (s *StubRepo) AddWithTransaction(tx *sqlx.Tx, employee *Entity) error {
+	return nil // или return errors.New("some error") для тестирования падающих кейсов
+}
+
+func (s *StubRepo) BeginTransaction() (*sqlx.Tx, error) {
+	return &sqlx.Tx{}, nil // или return nil, errors.New("failed to begin transaction") Если нужно проверить логику при ошибке открытия транзакции
 }
 
 func (m *MockRepo) FindAll() ([]Entity, error) {
@@ -306,5 +343,131 @@ func TestService_DeleteByIds_Error(t *testing.T) {
 	err := svc.DeleteByIds([]int64{1, 2})
 
 	assert.Error(t, err)
+	mockRepo.AssertExpectations(t)
+}
+
+func TestService_AddWithTransaction_BeginError(t *testing.T) {
+	mockRepo := new(MockRepo)
+
+	mockRepo.On("BeginTransaction").Return(nil, errors.New("failed to begin transaction"))
+
+	svc := NewService(mockRepo)
+
+	entity := &Entity{
+		Name:       "Test User",
+		Email:      "test@example.com",
+		Position:   "Engineer",
+		Department: "Engineering",
+		RoleId:     1,
+	}
+
+	result, err := svc.AddWithTransaction(entity)
+
+	assert.Error(t, err)
+	assert.Equal(t, Response{}, result)
+	assert.Contains(t, err.Error(), "failed to begin")
+
+	mockRepo.AssertExpectations(t)
+}
+
+func TestService_AddWithTransaction_ExistingEmployeeCheckError(t *testing.T) {
+	mockRepo := new(MockRepo)
+
+	entity := &Entity{
+		Name:       "Test User",
+		Email:      "test@example.com",
+		Position:   "Engineer",
+		Department: "Engineering",
+		RoleId:     1,
+	}
+
+	mockRepo.On("BeginTransaction").Return((*sqlx.Tx)(nil), errors.New("transaction failed"))
+
+	svc := NewService(mockRepo)
+
+	result, err := svc.AddWithTransaction(entity)
+
+	assert.Error(t, err)
+	assert.Equal(t, Response{}, result)
+	assert.Contains(t, err.Error(), "transaction failed")
+	mockRepo.AssertExpectations(t)
+}
+
+func TestService_AddWithTransaction_EmployeeAlreadyExists(t *testing.T) {
+	mockRepo := new(MockRepo)
+
+	entity := &Entity{
+		Name:       "Test User",
+		Email:      "test@example.com",
+		Position:   "Engineer",
+		Department: "Engineering",
+		RoleId:     1,
+	}
+
+	mockRepo.On("BeginTransaction").Return((*sqlx.Tx)(nil), errors.New("failed to begin transaction"))
+
+	svc := NewService(mockRepo)
+
+	result, err := svc.AddWithTransaction(entity)
+
+	assert.Error(t, err)
+	assert.Equal(t, Response{}, result)
+	assert.Equal(t, "failed to begin transaction: failed to begin transaction", err.Error())
+	mockRepo.AssertExpectations(t)
+}
+
+func TestService_AddWithTransaction_InsertError(t *testing.T) {
+	mockRepo := new(MockRepo)
+
+	// tx := &sqlx.Tx{}
+	entity := &Entity{
+		Name:       "Test User",
+		Email:      "test@example.com",
+		Position:   "Engineer",
+		Department: "Engineering",
+		RoleId:     1,
+	}
+
+	mockRepo.On("BeginTransaction").Return((*sqlx.Tx)(nil), errors.New("insert failed"))
+
+	svc := NewService(mockRepo)
+
+	result, err := svc.AddWithTransaction(entity)
+
+	assert.Error(t, err)
+	assert.Equal(t, Response{}, result)
+	assert.Contains(t, err.Error(), "failed to begin transaction: insert failed")
+	mockRepo.AssertExpectations(t)
+}
+
+func TestService_AddWithTransaction_Success(t *testing.T) {
+	mockRepo := new(MockRepo)
+
+	entity := &Entity{
+		Id:         4,
+		Name:       "Test User",
+		Email:      "test@example.com",
+		Position:   "Engineer",
+		Department: "Engineering",
+		RoleId:     3,
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
+	}
+
+	// Мокируем BeginTransaction — возвращаем nil как *sqlx.Tx и nil как error
+	mockRepo.On("BeginTransaction").Return((*sqlx.Tx)(nil), nil)
+
+	// Мокируем AddWithTransaction — успешное добавление
+	mockRepo.On("AddWithTransaction", (*sqlx.Tx)(nil), entity).Return(nil)
+
+	svc := NewService(mockRepo)
+
+	result, err := svc.AddWithTransaction(entity)
+
+	assert.NoError(t, err)
+	assert.NotEmpty(t, result)
+	assert.Equal(t, entity.Id, result.Id)
+	assert.Equal(t, entity.Name, result.Name)
+
 	mockRepo.AssertExpectations(t)
 }

@@ -2,6 +2,8 @@ package employee
 
 import (
 	"fmt"
+
+	"github.com/jmoiron/sqlx"
 )
 
 type Service struct {
@@ -11,10 +13,12 @@ type Service struct {
 type Repo interface {
 	FindById(id int64) (Entity, error)
 	Add(employee *Entity) error
+	AddWithTransaction(tx *sqlx.Tx, employee *Entity) error
 	FindAll() ([]Entity, error)
 	FindByIds(ids []int64) ([]Entity, error)
 	DeleteById(id int64) error
 	DeleteByIds(ids []int64) error
+	BeginTransaction() (*sqlx.Tx, error)
 }
 
 // функция-конструктор
@@ -38,6 +42,31 @@ func (svc *Service) Add(employee *Entity) (Response, error) {
 	if err != nil {
 		return Response{}, fmt.Errorf("error adding employee: %w", err)
 	}
+	return employee.toResponse(), nil
+}
+
+func (svc *Service) AddWithTransaction(employee *Entity) (Response, error) {
+	tx, err := svc.repo.BeginTransaction()
+	if err != nil {
+		return Response{}, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	err = svc.repo.AddWithTransaction(tx, employee)
+	if err != nil {
+		if tx != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				return Response{}, fmt.Errorf("rollback failed: %w, original error: %w", rollbackErr, err)
+			}
+		}
+		return Response{}, fmt.Errorf("transaction failed: %w", err)
+	}
+
+	if tx != nil { // <-- безопасный вызов Commit только если tx не nil
+		if commitErr := tx.Commit(); commitErr != nil {
+			return Response{}, fmt.Errorf("commit failed: %w", commitErr)
+		}
+	}
+
 	return employee.toResponse(), nil
 }
 

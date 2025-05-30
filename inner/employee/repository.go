@@ -1,6 +1,9 @@
 package employee
 
 import (
+	"database/sql"
+	"errors"
+
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 )
@@ -27,6 +30,30 @@ func (r *Repository) Add(employee *Entity) error {
 		return err
 	}
 	return nil
+}
+
+func (r *Repository) BeginTransaction() (*sqlx.Tx, error) {
+	return r.db.Beginx()
+}
+
+func (r *Repository) AddWithTransaction(tx *sqlx.Tx, employee *Entity) error {
+	var existing *Entity
+	err := tx.Get(&existing, "SELECT id FROM employee WHERE name = $1", employee.Name)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+		} else {
+			return err
+		}
+	} else {
+		return errors.New("employee with same name already exists")
+	}
+
+	err = tx.QueryRow(
+		"INSERT INTO employee (name, email, position, department, role_id) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+		employee.Name, employee.Email, employee.Position, employee.Department, employee.RoleId,
+	).Scan(&employee.Id)
+
+	return err
 }
 
 func (r *Repository) FindAll() ([]Entity, error) {
