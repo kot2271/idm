@@ -51,20 +51,28 @@ func (svc *Service) AddWithTransaction(employee *Entity) (Response, error) {
 		return Response{}, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
-	err = svc.repo.AddWithTransaction(tx, employee)
-	if err != nil {
-		if tx != nil {
+	defer func() {
+		if r := recover(); r != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
-				return Response{}, fmt.Errorf("rollback failed: %w, original error: %w", rollbackErr, err)
+				fmt.Printf("rollback after panic failed: %v\n", rollbackErr)
+			}
+			panic(r)
+		}
+
+		if err != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				fmt.Printf("rollback on error failed: %v\n", rollbackErr)
+			}
+		} else {
+			if commitErr := tx.Commit(); commitErr != nil {
+				err = fmt.Errorf("commit failed: %w", commitErr)
 			}
 		}
-		return Response{}, fmt.Errorf("transaction failed: %w", err)
-	}
+	}()
 
-	if tx != nil { // <-- безопасный вызов Commit только если tx не nil
-		if commitErr := tx.Commit(); commitErr != nil {
-			return Response{}, fmt.Errorf("commit failed: %w", commitErr)
-		}
+	err = svc.repo.AddWithTransaction(tx, employee)
+	if err != nil {
+		return Response{}, fmt.Errorf("transaction failed: %w", err)
 	}
 
 	return employee.toResponse(), nil
