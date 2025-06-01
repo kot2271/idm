@@ -1,10 +1,12 @@
 package employee
 
 import (
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -17,16 +19,6 @@ type MockRepo struct {
 
 type MockTx struct {
 	mock.Mock
-}
-
-func (m *MockTx) Commit() error {
-	args := m.Called()
-	return args.Error(0)
-}
-
-func (m *MockTx) Rollback() error {
-	args := m.Called()
-	return args.Error(0)
 }
 
 // объявляем структуру Stub-репозитория
@@ -53,8 +45,7 @@ func (s *StubRepo) Add(entity *Entity) error {
 }
 
 func (m *MockRepo) AddWithTransaction(tx *sqlx.Tx, employee *Entity) error {
-	args := m.Called(tx, employee)
-	return args.Error(0)
+	return m.Called(tx, employee).Error(0)
 }
 
 func (m *MockRepo) BeginTransaction() (*sqlx.Tx, error) {
@@ -441,33 +432,54 @@ func TestService_AddWithTransaction_InsertError(t *testing.T) {
 }
 
 func TestService_AddWithTransaction_Success(t *testing.T) {
-	mockRepo := new(MockRepo)
+	// Мок базы данных
+	db, mock, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
 
-	entity := &Entity{
-		Id:         4,
-		Name:       "Test User",
-		Email:      "test@example.com",
-		Position:   "Engineer",
-		Department: "Engineering",
-		RoleId:     3,
+	// sqlx.DB из обычного sql.DB
+	sqlxDB := sqlx.NewDb(db, "postgres")
+
+	mock.ExpectBegin()
+
+	// Запрос для проверки существования сотрудника --> возвращает пустой результат
+	mock.ExpectQuery(`SELECT id FROM employee WHERE name = \$1`).
+		WithArgs("Jack Black").
+		WillReturnError(sql.ErrNoRows)
+
+	// INSERT запрос с возвратом ID
+	mock.ExpectQuery(`INSERT INTO employee \(name, email, position, department, role_id\) VALUES \(\$1, \$2, \$3, \$4, \$5\) RETURNING id`).
+		WithArgs("Jack Black", "jack.black@example.com", "Developer", "IT", int64(2)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(123))
+
+	mock.ExpectCommit()
+
+	repo := NewEmployeeRepository(sqlxDB)
+
+	service := NewService(repo)
+
+	employee := &Entity{
+		Name:       "Jack Black",
+		Email:      "jack.black@example.com",
+		Position:   "Developer",
+		Department: "IT",
+		RoleId:     2,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
 
-	// Мокируем BeginTransaction — возвращаем nil как *sqlx.Tx и nil как error
-	mockRepo.On("BeginTransaction").Return((*sqlx.Tx)(nil), nil)
-
-	// Мокируем AddWithTransaction — успешное добавление
-	mockRepo.On("AddWithTransaction", (*sqlx.Tx)(nil), entity).Return(nil)
-
-	svc := NewService(mockRepo)
-
-	result, err := svc.AddWithTransaction(entity)
+	response, err := service.AddWithTransaction(employee)
 
 	assert.NoError(t, err)
-	assert.NotEmpty(t, result)
-	assert.Equal(t, entity.Id, result.Id)
-	assert.Equal(t, entity.Name, result.Name)
+	assert.Equal(t, int64(123), response.Id)
+	assert.Equal(t, "Jack Black", response.Name)
+	assert.Equal(t, "jack.black@example.com", response.Email)
+	assert.Equal(t, "Developer", response.Position)
+	assert.Equal(t, "IT", response.Department)
+	assert.Equal(t, int64(2), response.RoleId)
 
-	mockRepo.AssertExpectations(t)
+	assert.Equal(t, int64(123), employee.Id)
+
+	// Проверка, что все ожидания были выполнены
+	assert.NoError(t, mock.ExpectationsWereMet())
 }
