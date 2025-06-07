@@ -33,3 +33,19 @@ type Response struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
+
+type CreateRequest struct {
+	Name        string `json:"name" validate:"required,min=2,max=155"`
+	Description string `json:"description" validate:"required"`
+	Status      bool   `json:"status" validate:"required"`
+	ParentId    *int64 `json:"parent_id,omitempty" validate:"omitempty"`
+}
+
+func (req *CreateRequest) ToEntity() Entity {
+	return Entity{
+		Name:     req.Name,
+		Desc:     req.Description,
+		Status:   req.Status,
+		ParentId: req.ParentId,
+	}
+}

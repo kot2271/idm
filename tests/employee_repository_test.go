@@ -200,3 +200,94 @@ func TestAddWithTransaction_Failure(t *testing.T) {
 		t.Errorf("Expected no employee with name %s, but found one after rollback", duplicateEmp.Name)
 	}
 }
+
+func TestBeginTransactionEmployee(t *testing.T) {
+	repo := employee.NewEmployeeRepository(DB)
+	tx, err := repo.BeginTransaction()
+	assert.NoError(t, err)
+	assert.NotNil(t, tx)
+	err = tx.Rollback()
+	assert.NoError(t, err)
+}
+
+func TestFindByNameTx_Exists(t *testing.T) {
+	repo := employee.NewEmployeeRepository(DB)
+
+	clearTables()
+
+	tx, err := repo.BeginTransaction()
+	if err != nil {
+		t.Fatalf("Error beginning transaction: %v", err)
+	}
+
+	// Insert role inside test
+	var roleID int64 = 1
+	err = DB.QueryRow(`INSERT INTO role (name) VALUES ($1) RETURNING id`, "Test Role").Scan(&roleID)
+	assert.NoError(t, err)
+
+	empl := &employee.Entity{
+		Name:       "John Doe",
+		Email:      "john@example.com",
+		Position:   "Developer",
+		Department: "IT",
+		RoleId:     roleID,
+	}
+
+	// Insert a test entity
+	_, err = tx.Exec("INSERT INTO employee (name, email, position, department, role_id) VALUES ($1, $2, $3, $4, $5)",
+		empl.Name, empl.Email, empl.Position, empl.Department, empl.RoleId)
+	assert.NoError(t, err)
+
+	exists, err := repo.FindByNameTx(tx, "John Doe")
+	assert.NoError(t, err)
+	assert.True(t, exists)
+	err = tx.Commit()
+	assert.NoError(t, err)
+}
+
+func TestFindByNameTx_NotExists(t *testing.T) {
+	clearTables()
+	repo := employee.NewEmployeeRepository(DB)
+	tx, err := repo.BeginTransaction()
+	assert.NoError(t, err)
+
+	exists, err := repo.FindByNameTx(tx, "NonExistentName")
+	assert.NoError(t, err)
+	assert.False(t, exists)
+	err = tx.Commit()
+	assert.NoError(t, err)
+}
+
+func TestSaveTx(t *testing.T) {
+	repo := employee.NewEmployeeRepository(DB)
+
+	clearTables()
+
+	tx, err := repo.BeginTransaction()
+	if err != nil {
+		t.Fatalf("Error beginning transaction: %v", err)
+	}
+
+	var roleID int64 = 1
+	err = DB.QueryRow(`INSERT INTO role (name) VALUES ($1) RETURNING id`, "Test Role").Scan(&roleID)
+	assert.NoError(t, err)
+
+	employee := &employee.Entity{
+		Name:       "John Doe",
+		Email:      "john@example.com",
+		Position:   "Developer",
+		Department: "IT",
+		RoleId:     roleID,
+	}
+
+	id, err := repo.SaveTx(tx, *employee)
+	assert.NoError(t, err)
+	assert.NotZero(t, id)
+	err = tx.Commit()
+	assert.NoError(t, err)
+
+	var retrievedName string
+	err = DB.QueryRow("SELECT name FROM employee WHERE id = $1", id).Scan(&retrievedName)
+	assert.NoError(t, err)
+	assert.Equal(t, "John Doe", retrievedName)
+}

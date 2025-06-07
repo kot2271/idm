@@ -53,3 +53,27 @@ func (r *Repository) DeleteByIds(ids []int64) error {
 	_, err := r.db.Exec("DELETE FROM role WHERE id = ANY ($1)", pq.Array(ids))
 	return err
 }
+
+// Транзакционные методы
+func (r *Repository) BeginTransaction() (*sqlx.Tx, error) {
+	return r.db.Beginx()
+}
+
+// Найти роль по имени
+func (r *Repository) FindByNameTx(tx *sqlx.Tx, name string) (isExists bool, err error) {
+	err = tx.Get(
+		&isExists,
+		"select exists(select 1 from role where name = $1)",
+		name,
+	)
+	return isExists, err
+}
+
+// Создать новую роль
+func (r *Repository) SaveTx(tx *sqlx.Tx, role Entity) (roleId int64, err error) {
+	err = tx.Get(
+		&roleId,
+		`INSERT INTO role (name, description, status, parent_id) VALUES ($1, $2, $3, $4) RETURNING id`,
+		role.Name, role.Desc, role.Status, role.ParentId)
+	return roleId, err
+}
