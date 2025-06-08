@@ -36,3 +36,21 @@ type Response struct {
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
+
+type CreateRequest struct {
+	Name       string `json:"name" validate:"required,min=2,max=155"`
+	Email      string `json:"email" validate:"required,email"`
+	Position   string `json:"position" validate:"required"`
+	Department string `json:"department" validate:"required"`
+	RoleId     int64  `json:"role_id" validate:"required"`
+}
+
+func (req *CreateRequest) ToEntity() Entity {
+	return Entity{
+		Name:       req.Name,
+		Email:      req.Email,
+		Position:   req.Position,
+		Department: req.Department,
+		RoleId:     req.RoleId,
+	}
+}
