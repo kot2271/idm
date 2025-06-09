@@ -19,16 +19,19 @@ func Test_GetConfig_NoEnvFile(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Unsetenv("DB_DSN")
 	require.NoError(t, err)
+	err = os.Unsetenv("APP_NAME")
+	require.NoError(t, err)
+	err = os.Unsetenv("APP_VERSION")
+	require.NoError(t, err)
 
 	// Путь к существующему .env файлу в корне проекта
 	// envFilePath := filepath.Join("..", ".env")
 	envFilePath := filepath.Join("..", ".env_not_exists")
 
-	// Получаем конфиг без существующего .env файла
-	cfg := common.GetConfig(envFilePath)
-
-	assert.Empty(t, cfg.DbDriverName, "Поле DB_DRIVER_NAME должно быть пустым")
-	assert.Empty(t, cfg.Dsn, "Поле DB_DSN должно быть пустым")
+	// Ожидаем панику из-за валидации
+	assert.Panics(t, func() {
+		common.GetConfig(envFilePath)
+	}, "Должна быть паника из-за отсутствия обязательных полей")
 }
 
 func Test_GetConfig_NoVarsInEnvAndDotEnv(t *testing.T) {
@@ -36,6 +39,10 @@ func Test_GetConfig_NoVarsInEnvAndDotEnv(t *testing.T) {
 	err := os.Unsetenv("DB_DRIVER_NAME")
 	require.NoError(t, err)
 	err = os.Unsetenv("DB_DSN")
+	require.NoError(t, err)
+	err = os.Unsetenv("APP_NAME")
+	require.NoError(t, err)
+	err = os.Unsetenv("APP_VERSION")
 	require.NoError(t, err)
 
 	// Создаем временную директорию
@@ -48,10 +55,10 @@ func Test_GetConfig_NoVarsInEnvAndDotEnv(t *testing.T) {
 	err = os.WriteFile(envFilePath, []byte(""), 0644)
 	assert.NoError(t, err, "Не удалось создать временный .env файл")
 
-	cfg := common.GetConfig(envFilePath)
-
-	assert.Empty(t, cfg.DbDriverName, "Поле DB_DRIVER_NAME должно быть пустым")
-	assert.Empty(t, cfg.Dsn, "Поле DB_DSN должно быть пустым")
+	// Ожидаем панику из-за валидации
+	assert.Panics(t, func() {
+		common.GetConfig(envFilePath)
+	}, "Должна быть паника из-за отсутствия обязательных полей")
 }
 
 func Test_GetConfig_EnvVarsPresent_ButNotInDotEnv(t *testing.T) {
@@ -70,6 +77,10 @@ func Test_GetConfig_EnvVarsPresent_ButNotInDotEnv(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Setenv("DB_DSN", "host=localhost port=5432 user=postgres password=1234 dbname=mydb sslmode=disable")
 	require.NoError(t, err)
+	err = os.Setenv("APP_NAME", "test-app")
+	require.NoError(t, err)
+	err = os.Setenv("APP_VERSION", "1.0.0")
+	require.NoError(t, err)
 
 	// Вызываем GetConfig с путём к тестовому .env
 	cfg := common.GetConfig(envFilePath)
@@ -77,6 +88,16 @@ func Test_GetConfig_EnvVarsPresent_ButNotInDotEnv(t *testing.T) {
 	// Проверяем, что значения взяты из переменных окружения
 	assert.Equal(t, "postgres", cfg.DbDriverName)
 	assert.Equal(t, "host=localhost port=5432 user=postgres password=1234 dbname=mydb sslmode=disable", cfg.Dsn)
+	assert.Equal(t, "test-app", cfg.AppName)
+	assert.Equal(t, "1.0.0", cfg.AppVersion)
+
+	// Очистка переменных окружения после теста
+	defer func() {
+		_ = os.Unsetenv("DB_DRIVER_NAME")
+		_ = os.Unsetenv("DB_DSN")
+		_ = os.Unsetenv("APP_NAME")
+		_ = os.Unsetenv("APP_VERSION")
+	}()
 }
 
 func Test_ConfigPrioritizesEnv_OverDotEnv(t *testing.T) {
@@ -90,6 +111,8 @@ func Test_ConfigPrioritizesEnv_OverDotEnv(t *testing.T) {
 	dotEnvContent := []byte(`
 	DB_DRIVER_NAME=mysql
 	DB_DSN=user=mysql password=1234 dbname=mydb sslmode=disable
+	APP_NAME=dotenv-app
+	APP_VERSION=2.0.0
 	`)
 	err := os.WriteFile(envFilePath, dotEnvContent, 0644)
 	assert.NoError(t, err, "Не удалось создать тестовый .env файл")
@@ -99,10 +122,24 @@ func Test_ConfigPrioritizesEnv_OverDotEnv(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Setenv("DB_DSN", "host=localhost port=5432 user=postgres password=1234 dbname=mydb sslmode=disable")
 	require.NoError(t, err)
+	err = os.Setenv("APP_NAME", "env-app")
+	require.NoError(t, err)
+	err = os.Setenv("APP_VERSION", "3.0.0")
+	require.NoError(t, err)
 
 	cfg := common.GetConfig(envFilePath)
 	assert.Equal(t, "postgres", cfg.DbDriverName)
 	assert.Equal(t, "host=localhost port=5432 user=postgres password=1234 dbname=mydb sslmode=disable", cfg.Dsn)
+	assert.Equal(t, "env-app", cfg.AppName)
+	assert.Equal(t, "3.0.0", cfg.AppVersion)
+
+	defer func() {
+		_ = os.Unsetenv("DB_DRIVER_NAME")
+		_ = os.Unsetenv("DB_DSN")
+		_ = os.Unsetenv("APP_NAME")
+		_ = os.Unsetenv("APP_VERSION")
+	}()
+
 }
 
 func Test_GetConfig_LoadsFromDotEnv_WhenNoConflictingEnvVars(t *testing.T) {
@@ -116,6 +153,8 @@ func Test_GetConfig_LoadsFromDotEnv_WhenNoConflictingEnvVars(t *testing.T) {
 	dotEnvContent := []byte(`
 	DB_DRIVER_NAME=postgres
 	DB_DSN=host=localhost port=5432 user=postgres password=1234 dbname=mydb sslmode=disable
+	APP_NAME=dotenv-app
+	APP_VERSION=1.5.0
 	`)
 	err := os.WriteFile(envFilePath, dotEnvContent, 0644)
 	assert.NoError(t, err, "Не удалось создать тестовый .env файл")
@@ -124,6 +163,10 @@ func Test_GetConfig_LoadsFromDotEnv_WhenNoConflictingEnvVars(t *testing.T) {
 	err = os.Unsetenv("DB_DRIVER_NAME")
 	require.NoError(t, err)
 	err = os.Unsetenv("DB_DSN")
+	require.NoError(t, err)
+	err = os.Unsetenv("APP_NAME")
+	require.NoError(t, err)
+	err = os.Unsetenv("APP_VERSION")
 	require.NoError(t, err)
 
 	// Переходим в временную директорию, чтобы относительный путь ".env" работал
@@ -140,6 +183,8 @@ func Test_GetConfig_LoadsFromDotEnv_WhenNoConflictingEnvVars(t *testing.T) {
 	assert.Contains(t, cfg.Dsn, "dbname=mydb")
 	assert.Contains(t, cfg.Dsn, "user=postgres")
 	assert.Contains(t, cfg.Dsn, "password=1234")
+	assert.Equal(t, "dotenv-app", cfg.AppName)
+	assert.Equal(t, "1.5.0", cfg.AppVersion)
 }
 
 func Test_ConnectDb_WithInvalidConfig_ShouldError(t *testing.T) {
@@ -153,6 +198,8 @@ func Test_ConnectDb_WithInvalidConfig_ShouldError(t *testing.T) {
 	dotEnvContent := []byte(`
 	DB_DRIVER_NAME=postgres
 	DB_DSN=host=localhost port=5432 user=wronguser password=wrongpass dbname=postgres sslmode=disable
+	APP_NAME=test-app
+	APP_VERSION=1.0.0
 	`)
 	err := os.WriteFile(envFilePath, dotEnvContent, 0644)
 	require.NoError(t, err)
@@ -171,6 +218,10 @@ func Test_ConnectDb_WithValidConfig_ShouldSucceed(t *testing.T) {
 	err := os.Unsetenv("DB_DRIVER_NAME")
 	require.NoError(t, err)
 	err = os.Unsetenv("DB_DSN")
+	require.NoError(t, err)
+	err = os.Unsetenv("APP_NAME")
+	require.NoError(t, err)
+	err = os.Unsetenv("APP_VERSION")
 	require.NoError(t, err)
 
 	envFilePath := filepath.Join("..", ".env")
