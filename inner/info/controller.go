@@ -4,7 +4,7 @@ import (
 	"idm/inner/common"
 	"idm/inner/web"
 
-	"github.com/gofiber/fiber"
+	"github.com/gofiber/fiber/v2"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -40,19 +40,15 @@ func (c *Controller) RegisterRoutes() {
 }
 
 // GetInfo получение информации о приложении
-func (c *Controller) GetInfo(ctx *fiber.Ctx) {
-	var err = ctx.Status(fiber.StatusOK).JSON(&InfoResponse{
+func (c *Controller) GetInfo(ctx *fiber.Ctx) error {
+	return ctx.Status(fiber.StatusOK).JSON(&InfoResponse{
 		Name:    c.cfg.AppName,
 		Version: c.cfg.AppVersion,
 	})
-	if err != nil {
-		_ = common.ErrResponse(ctx, fiber.StatusInternalServerError, "error returning info")
-		return
-	}
 }
 
 // GetHealth проверка работоспособности приложения
-func (c *Controller) GetHealth(ctx *fiber.Ctx) {
+func (c *Controller) GetHealth(ctx *fiber.Ctx) error {
 	health := HealthResponse{
 		Status:   "OK",
 		Database: "OK",
@@ -60,29 +56,16 @@ func (c *Controller) GetHealth(ctx *fiber.Ctx) {
 
 	// Проверка подключения к базе данных
 	if c.db != nil {
-		err := c.db.Ping()
-		if err != nil {
+		if err := c.db.Ping(); err != nil {
 			health.Status = "ERROR"
 			health.Database = "ERROR"
-			var jsonErr = ctx.Status(fiber.StatusServiceUnavailable).JSON(&health)
-			if jsonErr != nil {
-				_ = common.ErrResponse(ctx, fiber.StatusInternalServerError, "error returning health status")
-			}
-			return
+			return ctx.Status(fiber.StatusServiceUnavailable).JSON(&health)
 		}
 	} else {
 		health.Status = "ERROR"
 		health.Database = "NOT_CONNECTED"
-		var jsonErr = ctx.Status(fiber.StatusServiceUnavailable).JSON(&health)
-		if jsonErr != nil {
-			_ = common.ErrResponse(ctx, fiber.StatusInternalServerError, "error returning health status")
-		}
-		return
+		return ctx.Status(fiber.StatusServiceUnavailable).JSON(&health)
 	}
 
-	var err = ctx.Status(fiber.StatusOK).JSON(&health)
-	if err != nil {
-		_ = common.ErrResponse(ctx, fiber.StatusInternalServerError, "error returning health status")
-		return
-	}
+	return ctx.Status(fiber.StatusOK).JSON(&health)
 }

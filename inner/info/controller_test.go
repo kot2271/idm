@@ -11,7 +11,7 @@ import (
 	"idm/inner/web"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/gofiber/fiber"
+	"github.com/gofiber/fiber/v2"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

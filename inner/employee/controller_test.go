@@ -9,7 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gofiber/fiber"
+	"github.com/gofiber/fiber/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -26,6 +26,26 @@ func (m *MockService) FindById(id int64) (Response, error) {
 func (m *MockService) CreateEmployee(request CreateRequest) (int64, error) {
 	args := m.Called(request)
 	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *MockService) DeleteById(id int64) error {
+	args := m.Called(id)
+	return args.Error(0)
+}
+
+func (m *MockService) DeleteByIds(ids []int64) error {
+	args := m.Called(ids)
+	return args.Error(0)
+}
+
+func (m *MockService) FindAll() ([]Response, error) {
+	args := m.Called()
+	return args.Get(0).([]Response), args.Error(1)
+}
+
+func (m *MockService) FindByIds(ids []int64) ([]Response, error) {
+	args := m.Called(ids)
+	return args.Get(0).([]Response), args.Error(1)
 }
 
 // setupTestController - вспомогательная функция для создания тестового контроллера
