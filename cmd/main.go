@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"idm/inner/common"
 	"idm/inner/database"
 	"idm/inner/employee"
@@ -9,23 +9,79 @@ import (
 	"idm/inner/role"
 	"idm/inner/validator"
 	"idm/inner/web"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 )
 
 func main() {
-	// создаём подключение к базе данных
-	database, err := database.ConnectDb()
-	// закрываем соединение с базой данных после выхода из функции main
-	defer func() {
-		if err != nil {
-			fmt.Printf("error closing db: %v", err)
+	// подключение к базе данных
+	db, err := database.ConnectDb()
+	if err != nil {
+		log.Fatalf("failed to connect to database: %v", err)
+	}
+
+	server := build(db)
+
+	// канал для получения системных сигналов
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
+
+	// запуск сервера в отдельной горутине
+	go func() {
+		log.Println("Starting server on :8080")
+		if err := server.App.Listen(":8080"); err != nil {
+			log.Printf("Server error: %v", err)
 		}
 	}()
-	var server = build(database)
-	err = server.App.Listen(":8080")
-	if err != nil {
-		panic(fmt.Sprintf("http server error: %s", err))
+
+	// ожидаем сигнал для завершения работы
+	<-quit
+	log.Println("Shutting down server...")
+
+	// выполняем graceful shutdown
+	gracefulShutdown(server, db)
+}
+
+// gracefulShutdown выполняет корректное завершение работы сервера
+func gracefulShutdown(server *web.Server, db *sqlx.DB) {
+	// контекст с таймаутом для shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// канал для отслеживания завершения shutdown
+	done := make(chan bool, 1)
+
+	// shutdown выполняется в отдельной горутине
+	go func() {
+		defer func() {
+			// закрываем соединение с базой данных
+			if err := db.Close(); err != nil {
+				log.Printf("Error closing database connection: %v", err)
+			} else {
+				log.Println("Database connection closed successfully")
+			}
+			done <- true
+		}()
+
+		// завершаем работу HTTP сервера
+		if err := server.App.Shutdown(); err != nil {
+			log.Printf("Error during server shutdown: %v", err)
+		} else {
+			log.Println("Server shutdown completed successfully")
+		}
+	}()
+
+	// ожидается завершение shutdown или таймаута
+	select {
+	case <-done:
+		log.Println("Graceful shutdown completed")
+	case <-ctx.Done():
+		log.Println("Shutdown timeout exceeded, forcing exit")
 	}
 }
 
