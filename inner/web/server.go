@@ -1,6 +1,6 @@
 package web
 
-import "github.com/gofiber/fiber"
+import "github.com/gofiber/fiber/v2"
 
 // структуа веб-сервера
 type Server struct {

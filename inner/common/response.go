@@ -1,6 +1,6 @@
 package common
 
-import "github.com/gofiber/fiber"
+import "github.com/gofiber/fiber/v2"
 
 type Response[T any] struct {
 	Success bool   `json:"success"`
