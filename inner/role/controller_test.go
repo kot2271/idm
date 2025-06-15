@@ -60,7 +60,18 @@ func setupTestApp() (*fiber.App, *MockService) {
 		GroupApiV1: app.Group("/api/v1"),
 	}
 
-	controller := NewController(server, mockService)
+	cfg := common.Config{
+		DbDriverName:   "postgres",
+		Dsn:            "localhost port=5432 user=wronguser password=wrongpass dbname=postgres sslmode=disable",
+		AppName:        "test_app",
+		AppVersion:     "1.0.0",
+		LogLevel:       "DEBUG",
+		LogDevelopMode: true,
+	}
+
+	logger := common.NewLogger(cfg)
+
+	controller := NewController(server, mockService, logger)
 	controller.RegisterRoutes()
 
 	return app, mockService

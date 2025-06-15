@@ -75,9 +75,23 @@ func (m *MockRepo) SaveTx(tx *sqlx.Tx, role Entity) (int64, error) {
 	return args.Get(0).(int64), args.Error(1)
 }
 
+// логгер для тестов
+func createTestLogger() *common.Logger {
+	cfg := common.Config{
+		DbDriverName:   "postgres",
+		Dsn:            "localhost port=5432 user=wronguser password=wrongpass dbname=postgres sslmode=disable",
+		AppName:        "test_app",
+		AppVersion:     "1.0.0",
+		LogLevel:       "DEBUG",
+		LogDevelopMode: true,
+	}
+	return common.NewLogger(cfg)
+}
+
 func TestService_FindById(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	parentId := int64(0)
 	parentId++
 	entity := Entity{
@@ -91,7 +105,7 @@ func TestService_FindById(t *testing.T) {
 	}
 	mockRepo.On("FindById", int64(2)).Return(entity, nil)
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	result, err := svc.FindById(2)
 
@@ -103,9 +117,10 @@ func TestService_FindById(t *testing.T) {
 func TestService_FindById_Error(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	mockRepo.On("FindById", int64(2)).Return(Entity{}, errors.New("db error"))
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	result, err := svc.FindById(2)
 
@@ -117,6 +132,7 @@ func TestService_FindById_Error(t *testing.T) {
 func TestService_Add(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	parentId := int64(1)
 	parentId++
 	entity := &Entity{
@@ -129,7 +145,7 @@ func TestService_Add(t *testing.T) {
 	}
 	mockRepo.On("Add", entity).Return(nil)
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	result, err := svc.Add(entity)
 
@@ -141,9 +157,10 @@ func TestService_Add(t *testing.T) {
 func TestService_Add_Error(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	mockRepo.On("Add", mock.Anything).Return(errors.New("db error"))
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	result, err := svc.Add(&Entity{})
 
@@ -155,6 +172,7 @@ func TestService_Add_Error(t *testing.T) {
 func TestService_FindAll(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	rootId := int64(0)
 	adminId := rootId + 1
 	userId := adminId + 1
@@ -180,7 +198,7 @@ func TestService_FindAll(t *testing.T) {
 	}
 	mockRepo.On("FindAll").Return(entities, nil)
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	result, err := svc.FindAll()
 
@@ -194,9 +212,10 @@ func TestService_FindAll(t *testing.T) {
 func TestService_FindAll_Error(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	mockRepo.On("FindAll").Return([]Entity{}, errors.New("db error"))
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	result, err := svc.FindAll()
 
@@ -208,6 +227,7 @@ func TestService_FindAll_Error(t *testing.T) {
 func TestService_FindByIds(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	ids := []int64{2, 3}
 	rootId := int64(0)
 	adminId := rootId + 1
@@ -234,7 +254,7 @@ func TestService_FindByIds(t *testing.T) {
 	}
 	mockRepo.On("FindByIds", ids).Return(entities, nil)
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	result, err := svc.FindByIds(ids)
 
@@ -248,9 +268,10 @@ func TestService_FindByIds(t *testing.T) {
 func TestService_FindByIds_Error(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	mockRepo.On("FindByIds", []int64{1, 2}).Return([]Entity{}, errors.New("db error"))
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	result, err := svc.FindByIds([]int64{1, 2})
 
@@ -262,9 +283,10 @@ func TestService_FindByIds_Error(t *testing.T) {
 func TestService_DeleteById(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	mockRepo.On("DeleteById", int64(2)).Return(nil)
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	err := svc.DeleteById(2)
 
@@ -275,9 +297,10 @@ func TestService_DeleteById(t *testing.T) {
 func TestService_DeleteById_Error(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	mockRepo.On("DeleteById", int64(1)).Return(errors.New("db error"))
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	err := svc.DeleteById(1)
 
@@ -288,9 +311,10 @@ func TestService_DeleteById_Error(t *testing.T) {
 func TestService_DeleteByIds(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	mockRepo.On("DeleteByIds", []int64{2, 3}).Return(nil)
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	err := svc.DeleteByIds([]int64{2, 3})
 
@@ -301,9 +325,10 @@ func TestService_DeleteByIds(t *testing.T) {
 func TestService_DeleteByIds_Error(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	mockRepo.On("DeleteByIds", []int64{1, 2}).Return(errors.New("db error"))
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	err := svc.DeleteByIds([]int64{1, 2})
 
@@ -316,6 +341,7 @@ func TestService_CreateRole(t *testing.T) {
 	t.Run("Successful role creation", func(t *testing.T) {
 		mockRepo := new(MockRepo)
 		mockValidator := new(MockValidator)
+		logger := createTestLogger()
 
 		db, mock, err := sqlmock.New()
 		assert.NoError(t, err)
@@ -330,7 +356,7 @@ func TestService_CreateRole(t *testing.T) {
 		tx, err := sqlxDB.Beginx()
 		assert.NoError(t, err)
 
-		service := NewService(mockRepo, mockValidator)
+		service := NewService(mockRepo, mockValidator, logger)
 
 		request := CreateRequest{
 			Name:        "TestRole",
@@ -358,7 +384,8 @@ func TestService_CreateRole(t *testing.T) {
 	t.Run("Validation error", func(t *testing.T) {
 		mockRepo := new(MockRepo)
 		mockValidator := new(MockValidator)
-		service := NewService(mockRepo, mockValidator)
+		logger := createTestLogger()
+		service := NewService(mockRepo, mockValidator, logger)
 
 		request := CreateRequest{
 			Name:        "", // невалидное имя
@@ -384,6 +411,7 @@ func TestService_CreateRole(t *testing.T) {
 	t.Run("Transaction creation error", func(t *testing.T) {
 		mockRepo := new(MockRepo)
 		mockValidator := new(MockValidator)
+		logger := createTestLogger()
 
 		db, mock, err := sqlmock.New()
 		assert.NoError(t, err)
@@ -398,7 +426,7 @@ func TestService_CreateRole(t *testing.T) {
 		tx, err := sqlxDB.Beginx()
 		assert.NoError(t, err)
 
-		service := NewService(mockRepo, mockValidator)
+		service := NewService(mockRepo, mockValidator, logger)
 
 		request := CreateRequest{
 			Name:        "TestRole",
@@ -425,6 +453,7 @@ func TestService_CreateRole(t *testing.T) {
 	t.Run("A role with this name already exists", func(t *testing.T) {
 		mockRepo := new(MockRepo)
 		mockValidator := new(MockValidator)
+		logger := createTestLogger()
 
 		db, mock, err := sqlmock.New()
 		assert.NoError(t, err)
@@ -439,7 +468,7 @@ func TestService_CreateRole(t *testing.T) {
 		tx, err := sqlxDB.Beginx()
 		assert.NoError(t, err)
 
-		service := NewService(mockRepo, mockValidator)
+		service := NewService(mockRepo, mockValidator, logger)
 
 		request := CreateRequest{
 			Name:        "ExistingRole",
@@ -466,6 +495,7 @@ func TestService_CreateRole(t *testing.T) {
 	t.Run("Error when searching for a role by name", func(t *testing.T) {
 		mockRepo := new(MockRepo)
 		mockValidator := new(MockValidator)
+		logger := createTestLogger()
 
 		db, mock, err := sqlmock.New()
 		assert.NoError(t, err)
@@ -480,7 +510,7 @@ func TestService_CreateRole(t *testing.T) {
 		tx, err := sqlxDB.Beginx()
 		assert.NoError(t, err)
 
-		service := NewService(mockRepo, mockValidator)
+		service := NewService(mockRepo, mockValidator, logger)
 
 		request := CreateRequest{
 			Name:        "TestRole",
@@ -509,6 +539,7 @@ func TestService_CreateRole(t *testing.T) {
 	t.Run("Error saving a role", func(t *testing.T) {
 		mockRepo := new(MockRepo)
 		mockValidator := new(MockValidator)
+		logger := createTestLogger()
 
 		db, mock, err := sqlmock.New()
 		assert.NoError(t, err)
@@ -523,7 +554,7 @@ func TestService_CreateRole(t *testing.T) {
 		tx, err := sqlxDB.Beginx()
 		assert.NoError(t, err)
 
-		service := NewService(mockRepo, mockValidator)
+		service := NewService(mockRepo, mockValidator, logger)
 
 		request := CreateRequest{
 			Name:        "TestRole",
@@ -552,6 +583,7 @@ func TestService_CreateRole(t *testing.T) {
 	t.Run("Creating a role with ParentId", func(t *testing.T) {
 		mockRepo := new(MockRepo)
 		mockValidator := new(MockValidator)
+		logger := createTestLogger()
 
 		db, mock, err := sqlmock.New()
 		assert.NoError(t, err)
@@ -566,7 +598,7 @@ func TestService_CreateRole(t *testing.T) {
 		tx, err := sqlxDB.Beginx()
 		assert.NoError(t, err)
 
-		service := NewService(mockRepo, mockValidator)
+		service := NewService(mockRepo, mockValidator, logger)
 
 		parentId := int64(456)
 		request := CreateRequest{
@@ -598,6 +630,7 @@ func BenchmarkService_CreateRole(b *testing.B) {
 	b.Run("Successful role creation", func(b *testing.B) {
 		mockRepo := new(MockRepo)
 		mockValidator := new(MockValidator)
+		logger := createTestLogger()
 
 		db, mock, err := sqlmock.New()
 		assert.NoError(b, err)
@@ -611,7 +644,7 @@ func BenchmarkService_CreateRole(b *testing.B) {
 
 		tx, err := sqlxDB.Beginx()
 		assert.NoError(b, err)
-		service := NewService(mockRepo, mockValidator)
+		service := NewService(mockRepo, mockValidator, logger)
 
 		request := CreateRequest{
 			Name:        "BenchmarkRole",
@@ -641,8 +674,9 @@ func BenchmarkService_CreateRole(b *testing.B) {
 	b.Run("Validation error", func(b *testing.B) {
 		mockRepo := new(MockRepo)
 		mockValidator := new(MockValidator)
+		logger := createTestLogger()
 
-		service := NewService(mockRepo, mockValidator)
+		service := NewService(mockRepo, mockValidator, logger)
 
 		request := CreateRequest{
 			Name:        "", // невалидное имя
@@ -666,6 +700,7 @@ func BenchmarkService_CreateRole(b *testing.B) {
 	b.Run("The role already exists", func(b *testing.B) {
 		mockRepo := new(MockRepo)
 		mockValidator := new(MockValidator)
+		logger := createTestLogger()
 
 		db, mock, err := sqlmock.New()
 		assert.NoError(b, err)
@@ -679,7 +714,7 @@ func BenchmarkService_CreateRole(b *testing.B) {
 
 		tx, err := sqlxDB.Beginx()
 		assert.NoError(b, err)
-		service := NewService(mockRepo, mockValidator)
+		service := NewService(mockRepo, mockValidator, logger)
 
 		request := CreateRequest{
 			Name:        "ExistingBenchmarkRole",
@@ -704,6 +739,7 @@ func BenchmarkService_CreateRole(b *testing.B) {
 	b.Run("Creating a role with ParentId", func(b *testing.B) {
 		mockRepo := new(MockRepo)
 		mockValidator := new(MockValidator)
+		logger := createTestLogger()
 
 		db, mock, err := sqlmock.New()
 		assert.NoError(b, err)
@@ -717,7 +753,7 @@ func BenchmarkService_CreateRole(b *testing.B) {
 
 		tx, err := sqlxDB.Beginx()
 		assert.NoError(b, err)
-		service := NewService(mockRepo, mockValidator)
+		service := NewService(mockRepo, mockValidator, logger)
 
 		parentId := int64(456)
 		request := CreateRequest{
@@ -749,6 +785,7 @@ func BenchmarkService_CreateRole(b *testing.B) {
 func BenchmarkService_CreateRole_Memory(b *testing.B) {
 	mockRepo := new(MockRepo)
 	mockValidator := new(MockValidator)
+	logger := createTestLogger()
 
 	db, mock, err := sqlmock.New()
 	assert.NoError(b, err)
@@ -762,7 +799,7 @@ func BenchmarkService_CreateRole_Memory(b *testing.B) {
 
 	tx, err := sqlxDB.Beginx()
 	assert.NoError(b, err)
-	service := NewService(mockRepo, mockValidator)
+	service := NewService(mockRepo, mockValidator, logger)
 
 	request := CreateRequest{
 		Name:        "MemoryBenchmarkRole",
@@ -794,6 +831,7 @@ func BenchmarkService_CreateRole_Parallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		mockRepo := new(MockRepo)
 		mockValidator := new(MockValidator)
+		logger := createTestLogger()
 
 		db, mock, err := sqlmock.New()
 		assert.NoError(b, err)
@@ -807,7 +845,7 @@ func BenchmarkService_CreateRole_Parallel(b *testing.B) {
 
 		tx, err := sqlxDB.Beginx()
 		assert.NoError(b, err)
-		service := NewService(mockRepo, mockValidator)
+		service := NewService(mockRepo, mockValidator, logger)
 
 		request := CreateRequest{
 			Name:        "ParallelBenchmarkRole",
@@ -849,6 +887,7 @@ func BenchmarkService_CreateRole_DataSizes(b *testing.B) {
 		b.Run(size.name, func(b *testing.B) {
 			mockRepo := new(MockRepo)
 			mockValidator := new(MockValidator)
+			logger := createTestLogger()
 
 			db, mock, err := sqlmock.New()
 			assert.NoError(b, err)
@@ -862,7 +901,7 @@ func BenchmarkService_CreateRole_DataSizes(b *testing.B) {
 
 			tx, err := sqlxDB.Beginx()
 			assert.NoError(b, err)
-			service := NewService(mockRepo, mockValidator)
+			service := NewService(mockRepo, mockValidator, logger)
 
 			// Генерация строки нужной длины
 			name := generateString(size.nameLen)
