@@ -19,7 +19,14 @@ func ConnectDb() (*sqlx.DB, error) {
 // Подключиться к базе данных с переданным конфигом
 func ConnectDbWithCfg(cfg common.Config) (*sqlx.DB, error) {
 	logger := common.NewLogger(cfg)
-	defer logger.Sync()
+	defer func() {
+		if err := logger.Sync(); err != nil {
+			// В случае ошибки при синхронизации логгера выводим в stderr
+			// т.к. сам логгер может быть недоступен
+			fmt.Printf("Failed to sync logger: %v\n", err)
+		}
+	}()
+
 	db, err := sqlx.Connect(cfg.DbDriverName, cfg.Dsn)
 	if err != nil {
 		logger.Error("Failed to connect to database",
