@@ -37,7 +37,9 @@ func TestController_GetInfo_Success(t *testing.T) {
 		AppVersion:   "1.0.0",
 	}
 
-	controller := NewController(server, cfg, nil)
+	logger := common.NewLogger(cfg)
+
+	controller := NewController(server, cfg, nil, logger)
 	controller.RegisterRoutes()
 
 	req := httptest.NewRequest("GET", "/internal/info", nil)
@@ -81,7 +83,9 @@ func TestController_GetHealth_WithHealthyDB(t *testing.T) {
 
 	mock.ExpectPing()
 
-	controller := NewController(server, cfg, sqlxDB)
+	logger := common.NewLogger(cfg)
+
+	controller := NewController(server, cfg, sqlxDB, logger)
 	controller.RegisterRoutes()
 
 	req := httptest.NewRequest("GET", "/internal/health", nil)
@@ -128,7 +132,9 @@ func TestController_GetHealth_WithUnhealthyDB(t *testing.T) {
 
 	mock.ExpectPing().WillReturnError(errors.New("database not available"))
 
-	controller := NewController(server, cfg, sqlxDB)
+	logger := common.NewLogger(cfg)
+
+	controller := NewController(server, cfg, sqlxDB, logger)
 	controller.RegisterRoutes()
 
 	req := httptest.NewRequest("GET", "/internal/health", nil)
@@ -163,7 +169,9 @@ func TestController_GetHealth_WithNilDB(t *testing.T) {
 		AppVersion:   "1.0.0",
 	}
 
-	controller := NewController(server, cfg, nil)
+	logger := common.NewLogger(cfg)
+
+	controller := NewController(server, cfg, nil, logger)
 	controller.RegisterRoutes()
 
 	req := httptest.NewRequest("GET", "/internal/health", nil)

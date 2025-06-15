@@ -6,11 +6,13 @@ import (
 	"idm/inner/common"
 
 	"github.com/jmoiron/sqlx"
+	"go.uber.org/zap"
 )
 
 type Service struct {
 	repo      Repo
 	validator Validator
+	logger    *common.Logger
 }
 
 type Repo interface {
@@ -31,20 +33,25 @@ type Validator interface {
 }
 
 // функция-конструктор
-func NewService(repo Repo, validator Validator) *Service {
+func NewService(repo Repo, validator Validator, logger *common.Logger) *Service {
 	return &Service{
 		repo:      repo,
 		validator: validator,
+		logger:    logger,
 	}
 }
 
 // Метод для создания нового сотрудника
 // принимает на вход CreateRequest - структура запроса на создание сотрудника
 func (svc *Service) CreateEmployee(request CreateRequest) (int64, error) {
+	svc.logger.Info("Creating new employee", zap.String("name", request.Name))
 
 	// валидируем запрос
 	var err = svc.validator.Validate(request)
 	if err != nil {
+		svc.logger.Error("Employee creation request validation failed",
+			zap.String("name", request.Name),
+			zap.Error(err))
 		// возвращаем кастомную ошибку в случае, если запрос не прошёл валидацию
 		return 0, common.RequestValidationError{Message: err.Error()}
 	}
@@ -53,21 +60,38 @@ func (svc *Service) CreateEmployee(request CreateRequest) (int64, error) {
 	tx, err := svc.repo.BeginTransaction()
 	defer func() {
 		if err != nil {
-			_ = tx.Rollback()
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				svc.logger.Error("Failed to rollback transaction",
+					zap.String("name", request.Name),
+					zap.Error(rollbackErr))
+			}
 		} else {
-			err = tx.Commit()
+			if commitErr := tx.Commit(); commitErr != nil {
+				svc.logger.Error("Failed to commit transaction",
+					zap.String("name", request.Name),
+					zap.Error(commitErr))
+				err = commitErr
+			}
 		}
 	}()
 	if err != nil {
+		svc.logger.Error("Failed to begin transaction for employee creation",
+			zap.String("name", request.Name),
+			zap.Error(err))
 		return 0, fmt.Errorf("error create employee: error creating transaction: %w", err)
 	}
 
 	// в рамках транзакции проверяем наличие в базе данных работника с таким же именем
 	isExist, err := svc.repo.FindByNameTx(tx, request.Name)
 	if err != nil {
+		svc.logger.Error("Failed to check if employee exists",
+			zap.String("name", request.Name),
+			zap.Error(err))
 		return 0, fmt.Errorf("error finding employee by name: %s, %w", request.Name, err)
 	}
 	if isExist {
+		svc.logger.Warn("Employee with this name already exists",
+			zap.String("name", request.Name))
 		return 0, common.AlreadyExistsError{Message: fmt.Sprintf("employee with name %s already exists", request.Name)}
 	}
 
@@ -75,48 +99,79 @@ func (svc *Service) CreateEmployee(request CreateRequest) (int64, error) {
 	// который должен будет создать нового сотрудника
 	newEmployeeId, err := svc.repo.SaveTx(tx, request.ToEntity())
 	if err != nil {
+		svc.logger.Error("Failed to save new employee",
+			zap.String("name", request.Name),
+			zap.Error(err))
 		err = fmt.Errorf("error creating employee with name: %s %v", request.Name, err)
+	} else {
+		svc.logger.Info("Employee created successfully",
+			zap.String("name", request.Name),
+			zap.Int64("id", newEmployeeId))
 	}
 	return newEmployeeId, err
 }
 
 func (svc *Service) FindById(id int64) (Response, error) {
+	svc.logger.Debug("Finding employee by ID", zap.Int64("id", id))
+
 	var entity, err = svc.repo.FindById(id)
 	if err != nil {
+		svc.logger.Error("Failed to find employee by ID",
+			zap.Int64("id", id),
+			zap.Error(err))
 		return Response{}, fmt.Errorf("error finding employee with id %d: %w", id, err)
 	}
 
+	svc.logger.Debug("Employee found successfully", zap.Int64("id", id))
 	return entity.toResponse(), nil
 }
 
 func (svc *Service) Add(employee *Entity) (Response, error) {
+	svc.logger.Info("Adding employee", zap.String("name", employee.Name))
+
 	err := svc.repo.Add(employee)
 	if err != nil {
+		svc.logger.Error("Failed to add employee",
+			zap.String("name", employee.Name),
+			zap.Error(err))
 		return Response{}, fmt.Errorf("error adding employee: %w", err)
 	}
+	svc.logger.Info("Employee added successfully", zap.String("name", employee.Name))
 	return employee.toResponse(), nil
 }
 
 func (svc *Service) AddWithTransaction(employee *Entity) (Response, error) {
+	svc.logger.Info("Adding employee with transaction", zap.String("name", employee.Name))
+
 	tx, err := svc.repo.BeginTransaction()
 	if err != nil {
+		svc.logger.Error("Failed to begin transaction for employee addition",
+			zap.String("name", employee.Name),
+			zap.Error(err))
 		return Response{}, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
 	defer func() {
 		if r := recover(); r != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
-				fmt.Printf("rollback after panic failed: %v\n", rollbackErr)
+				svc.logger.Error("Rollback after panic failed",
+					zap.String("name", employee.Name),
+					zap.Error(rollbackErr))
 			}
 			panic(r)
 		}
 
 		if err != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
-				fmt.Printf("rollback on error failed: %v\n", rollbackErr)
+				svc.logger.Error("Rollback on error failed",
+					zap.String("name", employee.Name),
+					zap.Error(rollbackErr))
 			}
 		} else {
 			if commitErr := tx.Commit(); commitErr != nil {
+				svc.logger.Error("Commit failed",
+					zap.String("name", employee.Name),
+					zap.Error(commitErr))
 				err = fmt.Errorf("commit failed: %w", commitErr)
 			}
 		}
@@ -124,48 +179,78 @@ func (svc *Service) AddWithTransaction(employee *Entity) (Response, error) {
 
 	err = svc.repo.AddWithTransaction(tx, employee)
 	if err != nil {
+		svc.logger.Error("Transaction failed while adding employee",
+			zap.String("name", employee.Name),
+			zap.Error(err))
 		return Response{}, fmt.Errorf("transaction failed: %w", err)
 	}
 
+	svc.logger.Info("Employee added with transaction successfully", zap.String("name", employee.Name))
 	return employee.toResponse(), nil
 }
 
 func (svc *Service) FindAll() ([]Response, error) {
+	svc.logger.Debug("Finding all employees")
+
 	entities, err := svc.repo.FindAll()
 	if err != nil {
+		svc.logger.Error("Failed to find all employees", zap.Error(err))
 		return nil, fmt.Errorf("error finding all employees: %w", err)
 	}
 	var responses []Response
 	for _, entity := range entities {
 		responses = append(responses, entity.toResponse())
 	}
+	svc.logger.Debug("Found all employees", zap.Int("count", len(responses)))
 	return responses, nil
 }
 
 func (svc *Service) FindByIds(ids []int64) ([]Response, error) {
+	svc.logger.Debug("Finding employees by IDs", zap.Int64s("ids", ids))
+
 	entities, err := svc.repo.FindByIds(ids)
 	if err != nil {
+		svc.logger.Error("Failed to find employees by IDs",
+			zap.Int64s("ids", ids),
+			zap.Error(err))
 		return nil, fmt.Errorf("error finding employees by ids: %w", err)
 	}
 	var responses []Response
 	for _, entity := range entities {
 		responses = append(responses, entity.toResponse())
 	}
+	svc.logger.Debug("Found employees by IDs",
+		zap.Int64s("ids", ids),
+		zap.Int("found_count", len(responses)))
 	return responses, nil
 }
 
 func (svc *Service) DeleteById(id int64) error {
+	svc.logger.Info("Deleting employee by ID", zap.Int64("id", id))
+
 	err := svc.repo.DeleteById(id)
 	if err != nil {
+		svc.logger.Error("Failed to delete employee by ID",
+			zap.Int64("id", id),
+			zap.Error(err))
 		return fmt.Errorf("error deleting employee with id %d: %w", id, err)
 	}
+
+	svc.logger.Info("Employee deleted successfully", zap.Int64("id", id))
 	return nil
 }
 
 func (svc *Service) DeleteByIds(ids []int64) error {
+	svc.logger.Info("Deleting employees by IDs", zap.Int64s("ids", ids))
+
 	err := svc.repo.DeleteByIds(ids)
 	if err != nil {
+		svc.logger.Error("Failed to delete employees by IDs",
+			zap.Int64s("ids", ids),
+			zap.Error(err))
 		return fmt.Errorf("error deleting employees with ids: %w", err)
 	}
+
+	svc.logger.Info("Employees deleted successfully", zap.Int64s("ids", ids))
 	return nil
 }
