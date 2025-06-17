@@ -222,6 +222,8 @@ func TestService_Add(t *testing.T) {
 
 	svc := NewService(mockRepo, validator, logger)
 
+	validator.On("Validate", entity).Return(nil)
+
 	result, err := svc.Add(entity)
 
 	assert.NoError(t, err)
@@ -236,6 +238,8 @@ func TestService_Add_Error(t *testing.T) {
 	mockRepo.On("Add", mock.Anything).Return(errors.New("db error"))
 
 	svc := NewService(mockRepo, validator, logger)
+
+	validator.On("Validate", mock.Anything).Return(nil)
 
 	result, err := svc.Add(&Entity{})
 

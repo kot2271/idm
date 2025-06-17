@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"idm/inner/common"
+	"idm/inner/validator"
 
 	"github.com/jmoiron/sqlx"
 	"go.uber.org/zap"
@@ -46,14 +47,8 @@ func NewService(repo Repo, validator Validator, logger *common.Logger) *Service 
 func (svc *Service) CreateEmployee(request CreateRequest) (int64, error) {
 	svc.logger.Info("Creating new employee", zap.String("name", request.Name))
 
-	// валидируем запрос
-	var err = svc.validator.Validate(request)
-	if err != nil {
-		svc.logger.Error("Employee creation request validation failed",
-			zap.String("name", request.Name),
-			zap.Error(err))
-		// возвращаем кастомную ошибку в случае, если запрос не прошёл валидацию
-		return 0, common.RequestValidationError{Message: err.Error()}
+	if err := svc.validateCreateRequest(request); err != nil {
+		return 0, err
 	}
 
 	// запрашиваем у репозитория новую транзакцию
@@ -111,6 +106,30 @@ func (svc *Service) CreateEmployee(request CreateRequest) (int64, error) {
 	return newEmployeeId, err
 }
 
+// валидация запроса на создание сотрудника
+func (svc *Service) validateCreateRequest(request CreateRequest) error {
+	svc.logger.Debug("Validating create employee request", zap.Any("request", request))
+
+	err := svc.validator.Validate(request)
+	if err != nil {
+		svc.logger.Error("Employee creation request validation failed",
+			zap.String("name", request.Name),
+			zap.Error(err))
+
+		if validationErr, ok := err.(validator.ValidationErrors); ok {
+			return common.RequestValidationError{
+				Message: "Data validation error",
+				Data:    validationErr.Errors,
+			}
+		}
+
+		// Если это другая ошибка валидации, возвращаем её как есть
+		return common.RequestValidationError{Message: err.Error()}
+	}
+
+	return nil
+}
+
 func (svc *Service) FindById(id int64) (Response, error) {
 	svc.logger.Debug("Finding employee by ID", zap.Int64("id", id))
 
@@ -129,7 +148,22 @@ func (svc *Service) FindById(id int64) (Response, error) {
 func (svc *Service) Add(employee *Entity) (Response, error) {
 	svc.logger.Info("Adding employee", zap.String("name", employee.Name))
 
-	err := svc.repo.Add(employee)
+	err := svc.validator.Validate(employee)
+	if err != nil {
+		svc.logger.Error("Employee add request validation failed",
+			zap.String("name", employee.Name),
+			zap.Error(err))
+
+		if validationErr, ok := err.(validator.ValidationErrors); ok {
+			return Response{}, common.RequestValidationError{
+				Message: "Data validation error",
+				Data:    validationErr.Errors,
+			}
+		}
+		return Response{}, common.RequestValidationError{Message: err.Error()}
+	}
+
+	err = svc.repo.Add(employee)
 	if err != nil {
 		svc.logger.Error("Failed to add employee",
 			zap.String("name", employee.Name),
@@ -197,9 +231,10 @@ func (svc *Service) FindAll() ([]Response, error) {
 		svc.logger.Error("Failed to find all employees", zap.Error(err))
 		return nil, fmt.Errorf("error finding all employees: %w", err)
 	}
-	var responses []Response
-	for _, entity := range entities {
-		responses = append(responses, entity.toResponse())
+
+	responses := make([]Response, len(entities))
+	for i, entity := range entities {
+		responses[i] = entity.toResponse()
 	}
 	svc.logger.Debug("Found all employees", zap.Int("count", len(responses)))
 	return responses, nil
@@ -215,9 +250,10 @@ func (svc *Service) FindByIds(ids []int64) ([]Response, error) {
 			zap.Error(err))
 		return nil, fmt.Errorf("error finding employees by ids: %w", err)
 	}
-	var responses []Response
-	for _, entity := range entities {
-		responses = append(responses, entity.toResponse())
+
+	responses := make([]Response, len(entities))
+	for i, entity := range entities {
+		responses[i] = entity.toResponse()
 	}
 	svc.logger.Debug("Found employees by IDs",
 		zap.Int64s("ids", ids),

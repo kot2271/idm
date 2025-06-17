@@ -1,7 +1,8 @@
 package common
 
 type RequestValidationError struct {
-	Message string
+	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
 }
 
 func (err RequestValidationError) Error() string {
@@ -9,7 +10,7 @@ func (err RequestValidationError) Error() string {
 }
 
 type AlreadyExistsError struct {
-	Message string
+	Message string `json:"message"`
 }
 
 func (err AlreadyExistsError) Error() string {

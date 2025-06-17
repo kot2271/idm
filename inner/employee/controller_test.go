@@ -112,11 +112,18 @@ func TestController_CreateEmployee_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, fiber.StatusOK, resp.StatusCode)
 
-	var response common.Response[int64]
+	var response struct {
+		Success bool           `json:"success"`
+		Message string         `json:"error"`
+		Data    map[string]any `json:"data"`
+	}
 	err = json.NewDecoder(resp.Body).Decode(&response)
 	assert.NoError(t, err)
 	assert.True(t, response.Success)
-	assert.Equal(t, expectedEmployeeId, response.Data)
+	assert.NotNil(t, response.Data)
+	id, ok := response.Data["id"].(float64)
+	assert.True(t, ok)
+	assert.Equal(t, float64(expectedEmployeeId), id)
 
 	mockService.AssertExpectations(t)
 }
@@ -193,7 +200,7 @@ func TestController_CreateEmployee_AlreadyExistsError(t *testing.T) {
 	resp, err := app.Test(req)
 
 	assert.NoError(t, err)
-	assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+	assert.Equal(t, fiber.StatusConflict, resp.StatusCode)
 
 	var response common.Response[any]
 	err = json.NewDecoder(resp.Body).Decode(&response)
@@ -216,7 +223,7 @@ func TestController_CreateEmployee_InternalServerError(t *testing.T) {
 		RoleId:     1,
 	}
 
-	internalError := errors.New("database connection failed")
+	internalError := errors.New("Internal server error")
 	mockService.On("CreateEmployee", createRequest).Return(int64(0), internalError)
 
 	requestBody, _ := json.Marshal(createRequest)
@@ -232,7 +239,38 @@ func TestController_CreateEmployee_InternalServerError(t *testing.T) {
 	err = json.NewDecoder(resp.Body).Decode(&response)
 	assert.NoError(t, err)
 	assert.False(t, response.Success)
-	assert.Equal(t, "database connection failed", response.Message)
+	assert.Equal(t, "Internal server error", response.Message)
+
+	mockService.AssertExpectations(t)
+}
+
+func TestController_CreateEmployee_InvalidData_ReturnsValidationError(t *testing.T) {
+	mockService, app := setupTestController(t)
+
+	// Невалидные данные (пустое имя)
+	createRequest := CreateRequest{
+		Name:       "",
+		Email:      "test@example.com",
+		Position:   "Dev",
+		Department: "IT",
+		RoleId:     1,
+	}
+	validationError := common.RequestValidationError{Message: "validation failed"}
+	mockService.On("CreateEmployee", createRequest).Return(int64(0), validationError)
+
+	requestBody, _ := json.Marshal(createRequest)
+	req := httptest.NewRequest("POST", "/api/v1/employees", bytes.NewReader(requestBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := app.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+
+	var response common.Response[any]
+	err = json.NewDecoder(resp.Body).Decode(&response)
+	assert.NoError(t, err)
+	assert.False(t, response.Success)
+	assert.Equal(t, "validation failed", response.Message)
 
 	mockService.AssertExpectations(t)
 }
