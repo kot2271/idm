@@ -38,11 +38,11 @@ type Response struct {
 }
 
 type CreateRequest struct {
-	Name       string `json:"name" validate:"required,min=2,max=155"`
-	Email      string `json:"email" validate:"required,email"`
-	Position   string `json:"position" validate:"required"`
-	Department string `json:"department" validate:"required"`
-	RoleId     int64  `json:"role_id" validate:"required"`
+	Name       string `json:"name" validate:"required,min=2,max=155" example:"Ivan Ivanov"`
+	Email      string `json:"email" validate:"required,email" example:"ivan.ivanov@company.com"`
+	Position   string `json:"position" validate:"required,min=2,max=100" example:"Developer"`
+	Department string `json:"department" validate:"required,min=2,max=100" example:"IT"`
+	RoleId     int64  `json:"role_id" validate:"required" example:"1"`
 }
 
 func (req *CreateRequest) ToEntity() Entity {

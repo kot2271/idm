@@ -100,11 +100,18 @@ func TestController_CreateRole_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var response common.Response[int64]
+	var response struct {
+		Success bool           `json:"success"`
+		Message string         `json:"error"`
+		Data    map[string]any `json:"data"`
+	}
 	err = json.NewDecoder(resp.Body).Decode(&response)
 	assert.NoError(t, err)
 	assert.True(t, response.Success)
-	assert.Equal(t, expectedRoleId, response.Data)
+	assert.NotNil(t, response.Data)
+	id, ok := response.Data["id"].(float64)
+	assert.True(t, ok)
+	assert.Equal(t, float64(expectedRoleId), id)
 
 	mockService.AssertExpectations(t)
 }
@@ -188,7 +195,7 @@ func TestController_CreateRole_AlreadyExistsError(t *testing.T) {
 	resp, err := app.Test(req)
 
 	assert.NoError(t, err)
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
 
 	var response common.Response[any]
 	err = json.NewDecoder(resp.Body).Decode(&response)
@@ -209,7 +216,7 @@ func TestController_CreateRole_InternalServerError(t *testing.T) {
 		ParentId:    nil,
 	}
 
-	internalErr := errors.New("database connection failed")
+	internalErr := errors.New("Internal server error")
 
 	mockService.On("CreateRole", requestBody).Return(int64(0), internalErr)
 
@@ -255,11 +262,18 @@ func TestController_CreateRole_WithParentId(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var response common.Response[int64]
+	var response struct {
+		Success bool           `json:"success"`
+		Message string         `json:"error"`
+		Data    map[string]any `json:"data"`
+	}
 	err = json.NewDecoder(resp.Body).Decode(&response)
 	assert.NoError(t, err)
 	assert.True(t, response.Success)
-	assert.Equal(t, expectedRoleId, response.Data)
+	assert.NotNil(t, response.Data)
+	id, ok := response.Data["id"].(float64)
+	assert.True(t, ok)
+	assert.Equal(t, float64(expectedRoleId), id)
 
 	mockService.AssertExpectations(t)
 }
@@ -307,4 +321,36 @@ func TestController_CreateRole_MissingContentType(t *testing.T) {
 
 	// Mock не должен был вызываться из-за ошибки парсинга
 	mockService.AssertNotCalled(t, "CreateRole")
+}
+
+func TestController_CreateRole_InvalidData_ReturnsValidationError(t *testing.T) {
+	app, mockService := setupTestApp()
+
+	parentId := int64(56)
+
+	// Невалидные данные (пустое имя)
+	createRequest := CreateRequest{
+		Name:        "",
+		Description: "Some description",
+		Status:      true,
+		ParentId:    &parentId,
+	}
+	validationError := common.RequestValidationError{Message: "validation failed"}
+	mockService.On("CreateRole", createRequest).Return(int64(0), validationError)
+
+	requestBody, _ := json.Marshal(createRequest)
+	req := httptest.NewRequest("POST", "/api/v1/roles", bytes.NewReader(requestBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := app.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	var response common.Response[any]
+	err = json.NewDecoder(resp.Body).Decode(&response)
+	assert.NoError(t, err)
+	assert.False(t, response.Success)
+	assert.Equal(t, "validation failed", response.Message)
+
+	mockService.AssertExpectations(t)
 }

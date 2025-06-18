@@ -35,8 +35,8 @@ type Response struct {
 }
 
 type CreateRequest struct {
-	Name        string `json:"name" validate:"required,min=2,max=155"`
-	Description string `json:"description" validate:"required"`
+	Name        string `json:"name" validate:"required,min=2,max=100" example:"Administrator"`
+	Description string `json:"description" validate:"required,min=5,max=500" example:"Full access rights to the system"`
 	Status      bool   `json:"status" validate:"required"`
 	ParentId    *int64 `json:"parent_id,omitempty" validate:"omitempty"`
 }

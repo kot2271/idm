@@ -147,6 +147,8 @@ func TestService_Add(t *testing.T) {
 
 	svc := NewService(mockRepo, validator, logger)
 
+	validator.On("Validate", entity).Return(nil)
+
 	result, err := svc.Add(entity)
 
 	assert.NoError(t, err)
@@ -161,6 +163,8 @@ func TestService_Add_Error(t *testing.T) {
 	mockRepo.On("Add", mock.Anything).Return(errors.New("db error"))
 
 	svc := NewService(mockRepo, validator, logger)
+
+	validator.On("Validate", mock.Anything).Return(nil)
 
 	result, err := svc.Add(&Entity{})
 
@@ -942,4 +946,63 @@ func generateString(length int) string {
 		result[i] = charset[i%len(charset)]
 	}
 	return string(result)
+}
+
+func TestService_validateCreateRequest_Success(t *testing.T) {
+	mockRepo := new(MockRepo)
+	validator := new(MockValidator)
+	logger := createTestLogger()
+	svc := NewService(mockRepo, validator, logger)
+
+	parentId := int64(1)
+	request := CreateRequest{
+		Name:        "Admin",
+		Description: "Full access",
+		Status:      true,
+		ParentId:    &parentId,
+	}
+	validator.On("Validate", request).Return(nil)
+
+	err := svc.validateCreateRequest(request)
+	assert.NoError(t, err)
+	validator.AssertExpectations(t)
+}
+
+func TestService_validateCreateRequest_CustomError(t *testing.T) {
+	mockRepo := new(MockRepo)
+	validator := new(MockValidator)
+	logger := createTestLogger()
+	svc := NewService(mockRepo, validator, logger)
+
+	request := CreateRequest{Name: ""} // невалидные данные
+	customErr := errors.New("custom validation error")
+	validator.On("Validate", request).Return(customErr)
+
+	err := svc.validateCreateRequest(request)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "custom validation error")
+	validator.AssertExpectations(t)
+}
+
+// Мокаем validator.ValidationErrors для проверки обработки именно этого типа
+// и сообщения "Data validation error"
+type mockValidationErrors struct{}
+
+func (mockValidationErrors) Error() string { return "Data validation error" }
+
+func TestService_validateCreateRequest_ValidationErrorsType(t *testing.T) {
+	mockRepo := new(MockRepo)
+	validator := new(MockValidator)
+	logger := createTestLogger()
+	svc := NewService(mockRepo, validator, logger)
+
+	var validationErrs = mockValidationErrors{}
+
+	request := CreateRequest{Name: ""}
+	validator.On("Validate", request).Return(validationErrs)
+
+	err := svc.validateCreateRequest(request)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Data validation error")
+	validator.AssertExpectations(t)
 }

@@ -1,7 +1,8 @@
-package validator
+package validator_test
 
 import (
 	"idm/inner/employee"
+	customVal "idm/inner/validator"
 	"testing"
 
 	"github.com/go-playground/validator/v10"
@@ -228,7 +229,7 @@ func TestCreateRequest_Validation(t *testing.T) {
 }
 
 func TestCreateRequest_WithCustomValidator(t *testing.T) {
-	customValidator := New()
+	customValidator := customVal.New()
 
 	t.Run("Valid request with custom validator", func(t *testing.T) {
 		req := employee.CreateRequest{
@@ -255,9 +256,18 @@ func TestCreateRequest_WithCustomValidator(t *testing.T) {
 		err := customValidator.Validate(req)
 		require.Error(t, err)
 
-		validationErrors, ok := err.(validator.ValidationErrors)
-		require.True(t, ok)
-		assert.Len(t, validationErrors, 5)
+		validationErrors, _ := err.(customVal.ValidationErrors)
+		assert.Len(t, validationErrors.Errors, 5)
+
+		fields := map[string]bool{}
+		for _, ve := range validationErrors.Errors {
+			fields[ve.Field] = true
+		}
+		assert.True(t, fields["Name"])
+		assert.True(t, fields["Email"])
+		assert.True(t, fields["Position"])
+		assert.True(t, fields["Department"])
+		assert.True(t, fields["RoleId"])
 	})
 }
 

@@ -5,7 +5,6 @@ import (
 	"idm/inner/common"
 	"idm/inner/web"
 	"strconv"
-	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"go.uber.org/zap"
@@ -62,7 +61,7 @@ func (c *Controller) CreateEmployee(ctx *fiber.Ctx) error {
 		c.logger.Error("Failed to parse create employee request body",
 			zap.Error(err),
 			zap.String("ip", ctx.IP()))
-		return common.ErrResponse(ctx, fiber.StatusBadRequest, err.Error())
+		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Incorrect data format in request")
 	}
 
 	// логируем тело запроса
@@ -71,25 +70,7 @@ func (c *Controller) CreateEmployee(ctx *fiber.Ctx) error {
 	// вызываем метод CreateEmployee сервиса employee.Service
 	var newEmployeeId, err = c.employeeService.CreateEmployee(request)
 	if err != nil {
-		switch {
-
-		// если сервис возвращает ошибку RequestValidationError или AlreadyExistsError,
-		// то мы возвращаем ответ с кодом 400 (BadRequest)
-		case errors.As(err, &common.RequestValidationError{}) || errors.As(err, &common.AlreadyExistsError{}):
-			c.logger.Warn("Create employee validation or conflict error",
-				zap.String("name", request.Name),
-				zap.Error(err),
-				zap.String("ip", ctx.IP()))
-			return common.ErrResponse(ctx, fiber.StatusBadRequest, err.Error())
-
-		// если сервис возвращает другую ошибку, то мы возвращаем ответ с кодом 500 (InternalServerError)
-		default:
-			c.logger.Error("create employee internal error",
-				zap.String("name", request.Name),
-				zap.Error(err),
-				zap.String("ip", ctx.IP()))
-			return common.ErrResponse(ctx, fiber.StatusInternalServerError, err.Error())
-		}
+		return c.handleCreateEmployeeError(ctx, err, request)
 	}
 
 	c.logger.Info("Employee created successfully",
@@ -98,7 +79,47 @@ func (c *Controller) CreateEmployee(ctx *fiber.Ctx) error {
 		zap.String("ip", ctx.IP()))
 
 	// функция OkResponse() формирует и направляет ответ в случае успеха
-	return common.OkResponse(ctx, newEmployeeId)
+	return common.OkResponse(ctx, fiber.Map{
+		"id":      newEmployeeId,
+		"message": "Employee successfully created",
+	})
+}
+
+// handleCreateEmployeeError обрабатывает ошибки при создании сотрудника
+func (c *Controller) handleCreateEmployeeError(ctx *fiber.Ctx, err error, request CreateRequest) error {
+	switch {
+	// Обработка ошибок валидации
+	case errors.As(err, &common.RequestValidationError{}):
+		c.logger.Warn("Create employee validation error",
+			zap.String("name", request.Name),
+			zap.Error(err),
+			zap.String("ip", ctx.IP()))
+
+		// Получаем детали ошибки валидации
+		var validationErr common.RequestValidationError
+		errors.As(err, &validationErr)
+
+		if validationErr.Data != nil {
+			return common.ErrResponse(ctx, fiber.StatusBadRequest, "Data validation error", validationErr.Data)
+		}
+		return common.ErrResponse(ctx, fiber.StatusBadRequest, validationErr.Message)
+
+	// Обработка ошибок существования
+	case errors.As(err, &common.AlreadyExistsError{}):
+		c.logger.Warn("Create employee conflict error",
+			zap.String("name", request.Name),
+			zap.Error(err),
+			zap.String("ip", ctx.IP()))
+		return common.ErrResponse(ctx, fiber.StatusConflict, err.Error())
+
+	// Обработка других ошибок
+	default:
+		c.logger.Error("Create employee internal error",
+			zap.String("name", request.Name),
+			zap.Error(err),
+			zap.String("ip", ctx.IP()))
+		return common.ErrResponse(ctx, fiber.StatusInternalServerError, "Internal server error")
+	}
 }
 
 func (c *Controller) GetEmployee(ctx *fiber.Ctx) error {
@@ -107,18 +128,23 @@ func (c *Controller) GetEmployee(ctx *fiber.Ctx) error {
 		zap.String("path", ctx.Path()),
 		zap.String("ip", ctx.IP()))
 
-	id, err := strconv.ParseInt(ctx.Params("id"), 10, 64)
+	idParam := ctx.Params("id")
+	id, err := strconv.ParseInt(idParam, 10, 64)
 	if err != nil {
+		c.logger.Error("Invalid employee ID format",
+			zap.String("id", idParam),
+			zap.Error(err),
+			zap.String("ip", ctx.IP()))
 		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Invalid employee ID")
 	}
 
 	employee, err := c.employeeService.FindById(id)
 	if err != nil {
-		c.logger.Error("Invalid employee ID in get request",
-			zap.String("id_param", ctx.Params("id")),
+		c.logger.Error("Failed to find employee",
+			zap.Int64("id", id),
 			zap.Error(err),
 			zap.String("ip", ctx.IP()))
-		return common.ErrResponse(ctx, fiber.StatusInternalServerError, err.Error())
+		return common.ErrResponse(ctx, fiber.StatusNotFound, "Employee not found")
 	}
 
 	c.logger.Debug("Employee retrieved successfully",
@@ -134,7 +160,9 @@ func (c *Controller) DeleteEmployee(ctx *fiber.Ctx) error {
 		zap.String("path", ctx.Path()),
 		zap.String("ip", ctx.IP()))
 
-	id, err := strconv.ParseInt(ctx.Params("id"), 10, 64)
+	idParam := ctx.Params("id")
+
+	id, err := strconv.ParseInt(idParam, 10, 64)
 	if err != nil {
 		c.logger.Error("Invalid employee ID in delete request",
 			zap.String("id_param", ctx.Params("id")),
@@ -149,14 +177,14 @@ func (c *Controller) DeleteEmployee(ctx *fiber.Ctx) error {
 			zap.Int64("id", id),
 			zap.Error(err),
 			zap.String("ip", ctx.IP()))
-		return common.ErrResponse(ctx, fiber.StatusInternalServerError, err.Error())
+		return common.ErrResponse(ctx, fiber.StatusInternalServerError, "Error when deleting an employee")
 	}
 
 	c.logger.Info("Employee deleted successfully",
 		zap.Int64("id", id),
 		zap.String("ip", ctx.IP()))
 
-	return common.OkResponse(ctx, "Employee deleted successfully")
+	return common.OkResponse(ctx, fiber.Map{"message": "Employee deleted successfully"})
 }
 
 func (c *Controller) FindAllEmployee(ctx *fiber.Ctx) error {
@@ -170,7 +198,7 @@ func (c *Controller) FindAllEmployee(ctx *fiber.Ctx) error {
 		c.logger.Error("Failed to find all employees",
 			zap.Error(err),
 			zap.String("ip", ctx.IP()))
-		return common.ErrResponse(ctx, fiber.StatusInternalServerError, err.Error())
+		return common.ErrResponse(ctx, fiber.StatusInternalServerError, "Error when getting the list of employees")
 	}
 
 	c.logger.Debug("All employees retrieved successfully",
@@ -187,7 +215,7 @@ func (c *Controller) FindEmployeeByIds(ctx *fiber.Ctx) error {
 		zap.String("ip", ctx.IP()))
 
 	var request struct {
-		Ids []int64 `json:"ids"`
+		Ids []int64 `json:"ids" validate:"required,min=1"`
 	}
 
 	if err := ctx.BodyParser(&request); err != nil {
@@ -195,6 +223,10 @@ func (c *Controller) FindEmployeeByIds(ctx *fiber.Ctx) error {
 			zap.Error(err),
 			zap.String("ip", ctx.IP()))
 		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	if len(request.Ids) == 0 {
+		return common.ErrResponse(ctx, fiber.StatusBadRequest, "The ID list cannot be empty.")
 	}
 
 	c.logger.Debug("Parsed find employees by IDs request",
@@ -207,7 +239,7 @@ func (c *Controller) FindEmployeeByIds(ctx *fiber.Ctx) error {
 			zap.Int64s("ids", request.Ids),
 			zap.Error(err),
 			zap.String("ip", ctx.IP()))
-		return common.ErrResponse(ctx, fiber.StatusInternalServerError, err.Error())
+		return common.ErrResponse(ctx, fiber.StatusInternalServerError, "Error searching for employees")
 	}
 
 	c.logger.Debug("Employees found by IDs successfully",
@@ -224,43 +256,38 @@ func (c *Controller) DeleteEmployeeByIds(ctx *fiber.Ctx) error {
 		zap.String("path", ctx.Path()),
 		zap.String("ip", ctx.IP()))
 
-	idsParam := ctx.Query("ids")
-	if idsParam == "" {
-		c.logger.Error("Missing ids parameter in delete request",
-			zap.String("ip", ctx.IP()))
-		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Missing ids parameter")
+	var request struct {
+		Ids []int64 `json:"ids" validate:"required,min=1"`
 	}
 
-	idsStr := strings.Split(idsParam, ",")
-	var ids []int64
-	for _, idStr := range idsStr {
-		id, err := strconv.ParseInt(idStr, 10, 64)
-		if err != nil {
-			c.logger.Error("Invalid employee ID in bulk delete request",
-				zap.String("id_param", idStr),
-				zap.Error(err),
-				zap.String("ip", ctx.IP()))
-			return common.ErrResponse(ctx, fiber.StatusBadRequest, "Invalid employee ID")
-		}
-		ids = append(ids, id)
+	if err := ctx.BodyParser(&request); err != nil {
+		c.logger.Error("Missing ids parameter in delete request",
+			zap.String("ip", ctx.IP()))
+		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Incorrect data format in the request")
+	}
+
+	if len(request.Ids) == 0 {
+		c.logger.Warn("The ID list cannot be empty.",
+			zap.String("ip", ctx.IP()))
+		return common.ErrResponse(ctx, fiber.StatusBadRequest, "The ID list cannot be empty.")
 	}
 
 	c.logger.Debug("Parsed delete employees by IDs request",
-		zap.Int64s("ids", ids),
+		zap.Int64s("ids", request.Ids),
 		zap.String("ip", ctx.IP()))
 
-	err := c.employeeService.DeleteByIds(ids)
+	err := c.employeeService.DeleteByIds(request.Ids)
 	if err != nil {
 		c.logger.Error("Failed to delete employees by IDs",
-			zap.Int64s("ids", ids),
+			zap.Int64s("ids", request.Ids),
 			zap.Error(err),
 			zap.String("ip", ctx.IP()))
-		return common.ErrResponse(ctx, fiber.StatusInternalServerError, err.Error())
+		return common.ErrResponse(ctx, fiber.StatusInternalServerError, "Error when deleting employees")
 	}
 
 	c.logger.Info("Employees deleted successfully",
-		zap.Int64s("ids", ids),
+		zap.Int64s("ids", request.Ids),
 		zap.String("ip", ctx.IP()))
 
-	return common.OkResponse(ctx, "Employees deleted successfully")
+	return common.OkResponse(ctx, fiber.Map{"message": "Employees deleted successfully"})
 }

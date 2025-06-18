@@ -5,7 +5,6 @@ import (
 	"idm/inner/common"
 	"idm/inner/web"
 	"strconv"
-	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"go.uber.org/zap"
@@ -62,7 +61,7 @@ func (c *Controller) CreateRole(ctx *fiber.Ctx) error {
 		c.logger.Error("Failed to parse create role request body",
 			zap.Error(err),
 			zap.String("ip", ctx.IP()))
-		return common.ErrResponse(ctx, fiber.StatusBadRequest, err.Error())
+		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Incorrect data format in request")
 	}
 
 	// логируем тело запроса
@@ -71,23 +70,7 @@ func (c *Controller) CreateRole(ctx *fiber.Ctx) error {
 	// вызываем метод CreateRole сервиса role.Service
 	newRoleId, err := c.roleService.CreateRole(request)
 	if err != nil {
-		switch {
-		// Handle validation errors
-		case errors.As(err, &common.RequestValidationError{}) || errors.As(err, &common.AlreadyExistsError{}):
-			c.logger.Warn("Create role validation or conflict error",
-				zap.String("name", request.Name),
-				zap.Error(err),
-				zap.String("ip", ctx.IP()))
-			return common.ErrResponse(ctx, fiber.StatusBadRequest, err.Error())
-
-		// Handle other errors
-		default:
-			c.logger.Error("create role internal error",
-				zap.String("name", request.Name),
-				zap.Error(err),
-				zap.String("ip", ctx.IP()))
-			return common.ErrResponse(ctx, fiber.StatusInternalServerError, err.Error())
-		}
+		return c.handleCreateRoleError(ctx, err, request)
 	}
 
 	c.logger.Info("Role created successfully",
@@ -96,7 +79,43 @@ func (c *Controller) CreateRole(ctx *fiber.Ctx) error {
 		zap.String("ip", ctx.IP()))
 
 	// функция OkResponse() формирует и направляет ответ в случае успеха
-	return common.OkResponse(ctx, newRoleId)
+	return common.OkResponse(ctx, fiber.Map{
+		"id":      newRoleId,
+		"message": "Role successfully created",
+	})
+}
+
+// обрабатывает ошибки при создании роли
+func (c *Controller) handleCreateRoleError(ctx *fiber.Ctx, err error, request CreateRequest) error {
+	switch {
+	case errors.As(err, &common.RequestValidationError{}):
+		c.logger.Warn("Create role validation error",
+			zap.String("name", request.Name),
+			zap.Error(err),
+			zap.String("ip", ctx.IP()))
+
+		var validationErr common.RequestValidationError
+		errors.As(err, &validationErr)
+
+		if validationErr.Data != nil {
+			return common.ErrResponse(ctx, fiber.StatusBadRequest, "Data validation error", validationErr.Data)
+		}
+		return common.ErrResponse(ctx, fiber.StatusBadRequest, validationErr.Message)
+
+	case errors.As(err, &common.AlreadyExistsError{}):
+		c.logger.Warn("Create role conflict error",
+			zap.String("name", request.Name),
+			zap.Error(err),
+			zap.String("ip", ctx.IP()))
+		return common.ErrResponse(ctx, fiber.StatusConflict, err.Error())
+
+	default:
+		c.logger.Error("Create role internal error",
+			zap.String("name", request.Name),
+			zap.Error(err),
+			zap.String("ip", ctx.IP()))
+		return common.ErrResponse(ctx, fiber.StatusInternalServerError, "Internal server error")
+	}
 }
 
 func (c *Controller) FindRoleById(ctx *fiber.Ctx) error {
@@ -105,18 +124,23 @@ func (c *Controller) FindRoleById(ctx *fiber.Ctx) error {
 		zap.String("path", ctx.Path()),
 		zap.String("ip", ctx.IP()))
 
-	id, err := strconv.ParseInt(ctx.Params("id"), 10, 64)
+	idParam := ctx.Params("id")
+	id, err := strconv.ParseInt(idParam, 10, 64)
 	if err != nil {
-		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Invalid role ID")
+		c.logger.Error("Invalid role ID format",
+			zap.String("id", idParam),
+			zap.Error(err),
+			zap.String("ip", ctx.IP()))
+		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Invalid role ID format")
 	}
 
 	role, err := c.roleService.FindById(id)
 	if err != nil {
-		c.logger.Error("Invalid role ID in get request",
-			zap.String("id_param", ctx.Params("id")),
+		c.logger.Error("Failed to find role by ID",
+			zap.Int64("id", id),
 			zap.Error(err),
 			zap.String("ip", ctx.IP()))
-		return common.ErrResponse(ctx, fiber.StatusInternalServerError, err.Error())
+		return common.ErrResponse(ctx, fiber.StatusNotFound, "Role not found")
 	}
 
 	c.logger.Debug("Role retrieved successfully",
@@ -137,7 +161,7 @@ func (c *Controller) FindAllRoles(ctx *fiber.Ctx) error {
 		c.logger.Error("Failed to find all roles",
 			zap.Error(err),
 			zap.String("ip", ctx.IP()))
-		return common.ErrResponse(ctx, fiber.StatusInternalServerError, err.Error())
+		return common.ErrResponse(ctx, fiber.StatusInternalServerError, "Error when getting the list of roles")
 	}
 
 	c.logger.Debug("All roles retrieved successfully",
@@ -154,14 +178,18 @@ func (c *Controller) FindRoleByIds(ctx *fiber.Ctx) error {
 		zap.String("ip", ctx.IP()))
 
 	var request struct {
-		Ids []int64 `json:"ids"`
+		Ids []int64 `json:"ids" validate:"required,min=1"`
 	}
 
 	if err := ctx.BodyParser(&request); err != nil {
 		c.logger.Error("Failed to parse find roles by IDs request body",
 			zap.Error(err),
 			zap.String("ip", ctx.IP()))
-		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Invalid request body")
+		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Incorrect data format in request")
+	}
+
+	if len(request.Ids) == 0 {
+		return common.ErrResponse(ctx, fiber.StatusBadRequest, "The ID list cannot be empty.")
 	}
 
 	c.logger.Debug("Parsed find roles by IDs request",
@@ -174,7 +202,7 @@ func (c *Controller) FindRoleByIds(ctx *fiber.Ctx) error {
 			zap.Int64s("ids", request.Ids),
 			zap.Error(err),
 			zap.String("ip", ctx.IP()))
-		return common.ErrResponse(ctx, fiber.StatusInternalServerError, err.Error())
+		return common.ErrResponse(ctx, fiber.StatusInternalServerError, "Error when searching for roles")
 	}
 
 	c.logger.Debug("Roles found by IDs successfully",
@@ -191,14 +219,19 @@ func (c *Controller) DeleteRoleById(ctx *fiber.Ctx) error {
 		zap.String("path", ctx.Path()),
 		zap.String("ip", ctx.IP()))
 
-	id, err := strconv.ParseInt(ctx.Params("id"), 10, 64)
+	idParam := ctx.Params("id")
+	id, err := strconv.ParseInt(idParam, 10, 64)
 	if err != nil {
 		c.logger.Error("Invalid role ID in delete request",
-			zap.String("id_param", ctx.Params("id")),
+			zap.String("id", idParam),
 			zap.Error(err),
 			zap.String("ip", ctx.IP()))
-		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Invalid role ID")
+		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Invalid role ID format")
 	}
+
+	c.logger.Info("Received delete role request",
+		zap.Int64("id", id),
+		zap.String("ip", ctx.IP()))
 
 	err = c.roleService.DeleteById(id)
 	if err != nil {
@@ -206,7 +239,7 @@ func (c *Controller) DeleteRoleById(ctx *fiber.Ctx) error {
 			zap.Int64("id", id),
 			zap.Error(err),
 			zap.String("ip", ctx.IP()))
-		return common.ErrResponse(ctx, fiber.StatusInternalServerError, err.Error())
+		return common.ErrResponse(ctx, fiber.StatusInternalServerError, "Error when deleting a role")
 	}
 
 	c.logger.Info("Role deleted successfully",
@@ -222,43 +255,39 @@ func (c *Controller) DeleteRoleByIds(ctx *fiber.Ctx) error {
 		zap.String("path", ctx.Path()),
 		zap.String("ip", ctx.IP()))
 
-	idsParam := ctx.Query("ids")
-	if idsParam == "" {
-		c.logger.Error("Missing ids parameter in delete request",
-			zap.String("ip", ctx.IP()))
-		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Missing ids parameter")
+	var request struct {
+		Ids []int64 `json:"ids" validate:"required,min=1"`
 	}
 
-	idsStr := strings.Split(idsParam, ",")
-	var ids []int64
-	for _, idStr := range idsStr {
-		id, err := strconv.ParseInt(idStr, 10, 64)
-		if err != nil {
-			c.logger.Error("Invalid role ID in bulk delete request",
-				zap.String("id_param", idStr),
-				zap.Error(err),
-				zap.String("ip", ctx.IP()))
-			return common.ErrResponse(ctx, fiber.StatusBadRequest, "Invalid role ID")
-		}
-		ids = append(ids, id)
+	if err := ctx.BodyParser(&request); err != nil {
+		c.logger.Error("Failed to parse delete role by IDs request body",
+			zap.Error(err),
+			zap.String("ip", ctx.IP()))
+		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Incorrect data format in request")
+	}
+
+	if len(request.Ids) == 0 {
+		c.logger.Warn("The ID list cannot be empty.",
+			zap.String("ip", ctx.IP()))
+		return common.ErrResponse(ctx, fiber.StatusBadRequest, "The ID list cannot be empty.")
 	}
 
 	c.logger.Debug("Parsed delete role by IDs request",
-		zap.Int64s("ids", ids),
+		zap.Int64s("ids", request.Ids),
 		zap.String("ip", ctx.IP()))
 
-	err := c.roleService.DeleteByIds(ids)
+	err := c.roleService.DeleteByIds(request.Ids)
 	if err != nil {
 		c.logger.Error("Failed to delete roles by IDs",
-			zap.Int64s("ids", ids),
+			zap.Int64s("ids", request.Ids),
 			zap.Error(err),
 			zap.String("ip", ctx.IP()))
-		return common.ErrResponse(ctx, fiber.StatusInternalServerError, err.Error())
+		return common.ErrResponse(ctx, fiber.StatusInternalServerError, "Error when deleting roles")
 	}
 
 	c.logger.Info("Roles deleted successfully",
-		zap.Int64s("ids", ids),
+		zap.Int64s("ids", request.Ids),
 		zap.String("ip", ctx.IP()))
 
-	return common.OkResponse(ctx, "Roles deleted successfully")
+	return common.OkResponse(ctx, fiber.Map{"message": "Roles deleted successfully"})
 }

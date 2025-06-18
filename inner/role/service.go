@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"idm/inner/common"
+	"idm/inner/validator"
 
 	"github.com/jmoiron/sqlx"
 	"go.uber.org/zap"
@@ -43,16 +44,10 @@ func NewService(repo Repo, validator Validator, logger *common.Logger) *Service 
 // Метод для создания новой роли
 // принимает на вход CreateRequest - структура запроса на создание новой роли
 func (svc *Service) CreateRole(request CreateRequest) (int64, error) {
-	svc.logger.Info("Validating create role request", zap.String("name", request.Name))
+	svc.logger.Info("Creating new role", zap.String("name", request.Name))
 
-	// валидируем запрос
-	var err = svc.validator.Validate(request)
-	if err != nil {
-		svc.logger.Error("Validation failed",
-			zap.String("name", request.Name),
-			zap.Error(err))
-		// возвращаем кастомную ошибку в случае, если запрос не прошёл валидацию
-		return 0, common.RequestValidationError{Message: err.Error()}
+	if err := svc.validateCreateRequest(request); err != nil {
+		return 0, err
 	}
 
 	// запрашиваем у репозитория новую транзакцию
@@ -111,6 +106,29 @@ func (svc *Service) CreateRole(request CreateRequest) (int64, error) {
 	return newRoleId, err
 }
 
+// валидация запроса на создание роли
+func (svc *Service) validateCreateRequest(request CreateRequest) error {
+	svc.logger.Debug("Validating create role request", zap.Any("request", request))
+
+	err := svc.validator.Validate(request)
+	if err != nil {
+		svc.logger.Error("Role creation request validation failed",
+			zap.String("name", request.Name),
+			zap.Error(err))
+
+		if validationErr, ok := err.(validator.ValidationErrors); ok {
+			return common.RequestValidationError{
+				Message: "Data validation error",
+				Data:    validationErr.Errors,
+			}
+		}
+
+		return common.RequestValidationError{Message: err.Error()}
+	}
+
+	return nil
+}
+
 func (svc *Service) FindById(id int64) (Response, error) {
 	svc.logger.Debug("Finding role by ID", zap.Int64("id", id))
 
@@ -129,7 +147,22 @@ func (svc *Service) FindById(id int64) (Response, error) {
 func (svc *Service) Add(role *Entity) (Response, error) {
 	svc.logger.Info("Adding role", zap.String("name", role.Name))
 
-	err := svc.repo.Add(role)
+	err := svc.validator.Validate(role)
+	if err != nil {
+		svc.logger.Error("Role add request validation failed",
+			zap.String("name", role.Name),
+			zap.Error(err))
+
+		if validationErr, ok := err.(validator.ValidationErrors); ok {
+			return Response{}, common.RequestValidationError{
+				Message: "Data validation error",
+				Data:    validationErr.Errors,
+			}
+		}
+		return Response{}, common.RequestValidationError{Message: err.Error()}
+	}
+
+	err = svc.repo.Add(role)
 	if err != nil {
 		svc.logger.Error("Failed to add role",
 			zap.String("name", role.Name),
@@ -137,6 +170,7 @@ func (svc *Service) Add(role *Entity) (Response, error) {
 		return Response{}, fmt.Errorf("error adding role: %w", err)
 	}
 
+	svc.logger.Info("Role added successfully", zap.String("name", role.Name))
 	return role.toResponse(), nil
 }
 
@@ -149,17 +183,22 @@ func (svc *Service) FindAll() ([]Response, error) {
 		return nil, fmt.Errorf("error finding all roles: %w", err)
 	}
 
-	var responses []Response
-	for _, role := range roles {
-		responses = append(responses, role.toResponse())
+	responses := make([]Response, len(roles))
+	for i, entity := range roles {
+		responses[i] = entity.toResponse()
 	}
 
-	svc.logger.Debug("Found all roles", zap.Int("count", len(responses)))
+	svc.logger.Debug("Found all roles successfully", zap.Int("count", len(responses)))
 	return responses, nil
 }
 
 func (svc *Service) FindByIds(ids []int64) ([]Response, error) {
 	svc.logger.Debug("Finding roles by IDs", zap.Int64s("ids", ids))
+
+	if len(ids) == 0 {
+		svc.logger.Warn("No IDs provided for role search")
+		return []Response{}, nil
+	}
 
 	roles, err := svc.repo.FindByIds(ids)
 	if err != nil {
@@ -168,12 +207,13 @@ func (svc *Service) FindByIds(ids []int64) ([]Response, error) {
 			zap.Error(err))
 		return nil, fmt.Errorf("error finding roles by ids: %w", err)
 	}
-	var responses []Response
-	for _, role := range roles {
-		responses = append(responses, role.toResponse())
+
+	responses := make([]Response, len(roles))
+	for i, entity := range roles {
+		responses[i] = entity.toResponse()
 	}
 
-	svc.logger.Debug("Found roles by IDs",
+	svc.logger.Debug("Found roles by IDs successfully",
 		zap.Int64s("ids", ids),
 		zap.Int("found_count", len(responses)))
 	return responses, nil
@@ -195,6 +235,11 @@ func (svc *Service) DeleteById(id int64) error {
 
 func (svc *Service) DeleteByIds(ids []int64) error {
 	svc.logger.Info("Deleting roles by IDs", zap.Int64s("ids", ids))
+
+	if len(ids) == 0 {
+		svc.logger.Warn("No IDs provided for role deletion")
+		return nil
+	}
 
 	err := svc.repo.DeleteByIds(ids)
 	if err != nil {
