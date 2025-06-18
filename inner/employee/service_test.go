@@ -904,3 +904,60 @@ func BenchmarkCreateEmployee_Success(b *testing.B) {
 		_, _ = service.CreateEmployee(request)
 	}
 }
+
+func TestService_validateCreateRequest_Success(t *testing.T) {
+	mockRepo := new(MockRepo)
+	validator := new(MockValidator)
+	logger := createTestLogger()
+	svc := NewService(mockRepo, validator, logger)
+
+	request := CreateRequest{
+		Name:       "John Doe",
+		Email:      "john.doe@example.com",
+		Position:   "Developer",
+		Department: "IT",
+		RoleId:     1,
+	}
+	validator.On("Validate", request).Return(nil)
+
+	err := svc.validateCreateRequest(request)
+	assert.NoError(t, err)
+	validator.AssertExpectations(t)
+}
+
+func TestService_validateCreateRequest_CustomError(t *testing.T) {
+	mockRepo := new(MockRepo)
+	validator := new(MockValidator)
+	logger := createTestLogger()
+	svc := NewService(mockRepo, validator, logger)
+
+	request := CreateRequest{Name: ""} // невалидные данные
+	customErr := errors.New("custom validation error")
+	validator.On("Validate", request).Return(customErr)
+
+	err := svc.validateCreateRequest(request)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "custom validation error")
+	validator.AssertExpectations(t)
+}
+
+type mockValidationErrors struct{}
+
+func (mockValidationErrors) Error() string { return "Data validation error" }
+
+func TestService_validateCreateRequest_ValidationErrorsType(t *testing.T) {
+	mockRepo := new(MockRepo)
+	validator := new(MockValidator)
+	logger := createTestLogger()
+	svc := NewService(mockRepo, validator, logger)
+
+	var validationErrs = mockValidationErrors{}
+
+	request := CreateRequest{Name: ""}
+	validator.On("Validate", request).Return(validationErrs)
+
+	err := svc.validateCreateRequest(request)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Data validation error")
+	validator.AssertExpectations(t)
+}
