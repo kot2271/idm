@@ -7,11 +7,14 @@ import (
 	"idm/inner/common"
 	"idm/inner/web"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 type MockService struct {
@@ -59,9 +62,29 @@ func setupTestController(_ *testing.T) (*MockService, *fiber.App) {
 
 	mockService := &MockService{}
 
-	controller := NewController(server, mockService)
+	cfg := common.Config{
+		DbDriverName:   "postgres",
+		Dsn:            "localhost port=5432 user=wronguser password=wrongpass dbname=postgres sslmode=disable",
+		AppName:        "test_app",
+		AppVersion:     "1.0.0",
+		LogLevel:       "DEBUG",
+		LogDevelopMode: true,
+	}
+
+	logger := common.NewLogger(cfg)
+
+	controller := NewController(server, mockService, logger)
 
 	controller.RegisterRoutes()
+	// Очистка переменных окружения после теста
+	defer func() {
+		_ = os.Unsetenv("DB_DRIVER_NAME")
+		_ = os.Unsetenv("DB_DSN")
+		_ = os.Unsetenv("APP_NAME")
+		_ = os.Unsetenv("APP_VERSION")
+		_ = os.Unsetenv("LOG_LEVEL")
+		_ = os.Unsetenv("LOG_DEVELOP_MODE")
+	}()
 
 	return mockService, app
 }
@@ -222,7 +245,31 @@ func TestNewController(t *testing.T) {
 	}
 	mockService := &MockService{}
 
-	controller := NewController(server, mockService)
+	// Создаем временную директорию
+	tempDir := t.TempDir()
+
+	// Путь к тестовому .env файлу
+	envFilePath := filepath.Join(tempDir, ".env")
+
+	// Записываем в него данные
+	dotEnvContent := []byte(`
+	DB_DRIVER_NAME=postgres
+	DB_DSN=host=localhost port=5432 user=wronguser password=wrongpass dbname=postgres sslmode=disable
+	APP_NAME=test-app
+	APP_VERSION=1.0.0
+	LOG_LEVEL=DEBUG
+	LOG_DEVELOP_MODE=true
+	`)
+	err := os.WriteFile(envFilePath, dotEnvContent, 0644)
+	require.NoError(t, err)
+
+	// Получаем конфиг из файла
+	cfg := common.GetConfig(envFilePath)
+	assert.NotEmpty(t, cfg)
+
+	logger := common.NewLogger(cfg)
+
+	controller := NewController(server, mockService, logger)
 
 	assert.NotNil(t, controller)
 	assert.Equal(t, server, controller.server)

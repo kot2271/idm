@@ -23,6 +23,10 @@ func Test_GetConfig_NoEnvFile(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Unsetenv("APP_VERSION")
 	require.NoError(t, err)
+	err = os.Unsetenv("LOG_LEVEL")
+	require.NoError(t, err)
+	err = os.Unsetenv("LOG_DEVELOP_MODE")
+	require.NoError(t, err)
 
 	// Путь к существующему .env файлу в корне проекта
 	// envFilePath := filepath.Join("..", ".env")
@@ -34,6 +38,32 @@ func Test_GetConfig_NoEnvFile(t *testing.T) {
 	}, "Должна быть паника из-за отсутствия обязательных полей")
 }
 
+func Test_GetConfig_NoEnvFile_WithPanicMessage(t *testing.T) {
+	// Удаляем переменные окружения для чистоты теста
+	envVars := []string{"DB_DRIVER_NAME", "DB_DSN", "APP_NAME", "APP_VERSION", "LOG_LEVEL", "LOG_DEVELOP_MODE"}
+	for _, envVar := range envVars {
+		err := os.Unsetenv(envVar)
+		require.NoError(t, err)
+	}
+
+	// Путь к несуществующему .env файлу
+	envFilePath := filepath.Join("..", ".env_not_exists")
+
+	// Ожидаем панику и проверяем содержимое сообщения
+	defer func() {
+		if r := recover(); r != nil {
+			panicMsg, ok := r.(string)
+			assert.True(t, ok, "Паника должна содержать строку")
+			assert.Contains(t, panicMsg, "config validation error", "Сообщение паники должно содержать информацию о валидации")
+		}
+	}()
+
+	// Этот вызов должен вызвать панику
+	assert.Panics(t, func() {
+		common.GetConfig(envFilePath)
+	})
+}
+
 func Test_GetConfig_NoVarsInEnvAndDotEnv(t *testing.T) {
 	// Убедимся, что переменные окружения не заданы
 	err := os.Unsetenv("DB_DRIVER_NAME")
@@ -43,6 +73,10 @@ func Test_GetConfig_NoVarsInEnvAndDotEnv(t *testing.T) {
 	err = os.Unsetenv("APP_NAME")
 	require.NoError(t, err)
 	err = os.Unsetenv("APP_VERSION")
+	require.NoError(t, err)
+	err = os.Unsetenv("LOG_LEVEL")
+	require.NoError(t, err)
+	err = os.Unsetenv("LOG_DEVELOP_MODE")
 	require.NoError(t, err)
 
 	// Создаем временную директорию
@@ -81,15 +115,22 @@ func Test_GetConfig_EnvVarsPresent_ButNotInDotEnv(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Setenv("APP_VERSION", "1.0.0")
 	require.NoError(t, err)
+	err = os.Setenv("LOG_LEVEL", "DEBUG")
+	require.NoError(t, err)
+	err = os.Setenv("LOG_DEVELOP_MODE", "true")
+	require.NoError(t, err)
 
 	// Вызываем GetConfig с путём к тестовому .env
 	cfg := common.GetConfig(envFilePath)
+	assert.NotEmpty(t, cfg)
 
 	// Проверяем, что значения взяты из переменных окружения
 	assert.Equal(t, "postgres", cfg.DbDriverName)
 	assert.Equal(t, "host=localhost port=5432 user=postgres password=1234 dbname=mydb sslmode=disable", cfg.Dsn)
 	assert.Equal(t, "test-app", cfg.AppName)
 	assert.Equal(t, "1.0.0", cfg.AppVersion)
+	assert.Equal(t, "DEBUG", cfg.LogLevel)
+	assert.Equal(t, true, cfg.LogDevelopMode)
 
 	// Очистка переменных окружения после теста
 	defer func() {
@@ -97,6 +138,8 @@ func Test_GetConfig_EnvVarsPresent_ButNotInDotEnv(t *testing.T) {
 		_ = os.Unsetenv("DB_DSN")
 		_ = os.Unsetenv("APP_NAME")
 		_ = os.Unsetenv("APP_VERSION")
+		_ = os.Unsetenv("LOG_LEVEL")
+		_ = os.Unsetenv("LOG_DEVELOP_MODE")
 	}()
 }
 
@@ -113,6 +156,8 @@ func Test_ConfigPrioritizesEnv_OverDotEnv(t *testing.T) {
 	DB_DSN=user=mysql password=1234 dbname=mydb sslmode=disable
 	APP_NAME=dotenv-app
 	APP_VERSION=2.0.0
+	LOG_LEVEL=DEBUG
+	LOG_DEVELOP_MODE=true
 	`)
 	err := os.WriteFile(envFilePath, dotEnvContent, 0644)
 	assert.NoError(t, err, "Не удалось создать тестовый .env файл")
@@ -126,18 +171,28 @@ func Test_ConfigPrioritizesEnv_OverDotEnv(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Setenv("APP_VERSION", "3.0.0")
 	require.NoError(t, err)
+	err = os.Setenv("LOG_LEVEL", "DEBUG")
+	require.NoError(t, err)
+	err = os.Setenv("LOG_DEVELOP_MODE", "true")
+	require.NoError(t, err)
 
 	cfg := common.GetConfig(envFilePath)
+	assert.NotEmpty(t, cfg)
+
 	assert.Equal(t, "postgres", cfg.DbDriverName)
 	assert.Equal(t, "host=localhost port=5432 user=postgres password=1234 dbname=mydb sslmode=disable", cfg.Dsn)
 	assert.Equal(t, "env-app", cfg.AppName)
 	assert.Equal(t, "3.0.0", cfg.AppVersion)
+	assert.Equal(t, "DEBUG", cfg.LogLevel)
+	assert.Equal(t, true, cfg.LogDevelopMode)
 
 	defer func() {
 		_ = os.Unsetenv("DB_DRIVER_NAME")
 		_ = os.Unsetenv("DB_DSN")
 		_ = os.Unsetenv("APP_NAME")
 		_ = os.Unsetenv("APP_VERSION")
+		_ = os.Unsetenv("LOG_LEVEL")
+		_ = os.Unsetenv("LOG_DEVELOP_MODE")
 	}()
 
 }
@@ -155,6 +210,8 @@ func Test_GetConfig_LoadsFromDotEnv_WhenNoConflictingEnvVars(t *testing.T) {
 	DB_DSN=host=localhost port=5432 user=postgres password=1234 dbname=mydb sslmode=disable
 	APP_NAME=dotenv-app
 	APP_VERSION=1.5.0
+	LOG_LEVEL=DEBUG
+	LOG_DEVELOP_MODE=true
 	`)
 	err := os.WriteFile(envFilePath, dotEnvContent, 0644)
 	assert.NoError(t, err, "Не удалось создать тестовый .env файл")
@@ -168,6 +225,10 @@ func Test_GetConfig_LoadsFromDotEnv_WhenNoConflictingEnvVars(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Unsetenv("APP_VERSION")
 	require.NoError(t, err)
+	err = os.Unsetenv("LOG_LEVEL")
+	require.NoError(t, err)
+	err = os.Unsetenv("LOG_DEVELOP_MODE")
+	require.NoError(t, err)
 
 	// Переходим в временную директорию, чтобы относительный путь ".env" работал
 	oldWd, _ := os.Getwd()
@@ -177,6 +238,7 @@ func Test_GetConfig_LoadsFromDotEnv_WhenNoConflictingEnvVars(t *testing.T) {
 
 	// Получаем конфиг
 	cfg := common.GetConfig(".env")
+	assert.NotEmpty(t, cfg)
 
 	// Проверяем, что значения взяты из .env
 	assert.Equal(t, "postgres", cfg.DbDriverName)
@@ -185,6 +247,8 @@ func Test_GetConfig_LoadsFromDotEnv_WhenNoConflictingEnvVars(t *testing.T) {
 	assert.Contains(t, cfg.Dsn, "password=1234")
 	assert.Equal(t, "dotenv-app", cfg.AppName)
 	assert.Equal(t, "1.5.0", cfg.AppVersion)
+	assert.Equal(t, "DEBUG", cfg.LogLevel)
+	assert.Equal(t, true, cfg.LogDevelopMode)
 }
 
 func Test_ConnectDb_WithInvalidConfig_ShouldError(t *testing.T) {
@@ -200,12 +264,15 @@ func Test_ConnectDb_WithInvalidConfig_ShouldError(t *testing.T) {
 	DB_DSN=host=localhost port=5432 user=wronguser password=wrongpass dbname=postgres sslmode=disable
 	APP_NAME=test-app
 	APP_VERSION=1.0.0
+	LOG_LEVEL=DEBUG
+	LOG_DEVELOP_MODE=true
 	`)
 	err := os.WriteFile(envFilePath, dotEnvContent, 0644)
 	require.NoError(t, err)
 
 	// Получаем конфиг из файла
 	cfg := common.GetConfig(envFilePath)
+	assert.NotEmpty(t, cfg)
 
 	// Вызываем подключение — должно вызвать Error
 	db, err := database.ConnectDbWithCfg(cfg)
@@ -223,10 +290,15 @@ func Test_ConnectDb_WithValidConfig_ShouldSucceed(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Unsetenv("APP_VERSION")
 	require.NoError(t, err)
+	err = os.Unsetenv("LOG_LEVEL")
+	require.NoError(t, err)
+	err = os.Unsetenv("LOG_DEVELOP_MODE")
+	require.NoError(t, err)
 
 	envFilePath := filepath.Join("..", ".env")
 
 	cfg := common.GetConfig(envFilePath)
+	assert.NotEmpty(t, cfg)
 
 	// Подключаемся к БД
 	db, err := database.ConnectDbWithCfg(cfg)

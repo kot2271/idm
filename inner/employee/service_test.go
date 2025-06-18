@@ -130,9 +130,23 @@ func (s *StubRepo) SaveTx(tx *sqlx.Tx, employee Entity) (int64, error) {
 	panic("unimplemented")
 }
 
+// логгер для тестов
+func createTestLogger() *common.Logger {
+	cfg := common.Config{
+		DbDriverName:   "postgres",
+		Dsn:            "localhost port=5432 user=wronguser password=wrongpass dbname=postgres sslmode=disable",
+		AppName:        "test_app",
+		AppVersion:     "1.0.0",
+		LogLevel:       "DEBUG",
+		LogDevelopMode: true,
+	}
+	return common.NewLogger(cfg)
+}
+
 func TestService_FindById_Mock(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	entity := Entity{
 		Id:         1,
 		Name:       "John",
@@ -145,7 +159,7 @@ func TestService_FindById_Mock(t *testing.T) {
 	}
 	mockRepo.On("FindById", int64(1)).Return(entity, nil)
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	result, err := svc.FindById(1)
 
@@ -155,6 +169,7 @@ func TestService_FindById_Mock(t *testing.T) {
 }
 
 func TestService_FindById_Stub(t *testing.T) {
+	logger := createTestLogger()
 	stubRepo := &StubRepo{
 		entity: Entity{
 			Id:         1,
@@ -169,7 +184,7 @@ func TestService_FindById_Stub(t *testing.T) {
 	}
 	validator := new(MockValidator)
 
-	svc := NewService(stubRepo, validator)
+	svc := NewService(stubRepo, validator, logger)
 
 	result, err := svc.FindById(1)
 
@@ -180,9 +195,10 @@ func TestService_FindById_Stub(t *testing.T) {
 func TestService_FindById_Error(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	mockRepo.On("FindById", int64(1)).Return(Entity{}, errors.New("db error"))
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	result, err := svc.FindById(1)
 
@@ -194,6 +210,7 @@ func TestService_FindById_Error(t *testing.T) {
 func TestService_Add(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	entity := &Entity{
 		Name:       "Jane",
 		Email:      "jane@example.com",
@@ -203,7 +220,7 @@ func TestService_Add(t *testing.T) {
 	}
 	mockRepo.On("Add", entity).Return(nil)
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	result, err := svc.Add(entity)
 
@@ -215,9 +232,10 @@ func TestService_Add(t *testing.T) {
 func TestService_Add_Error(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	mockRepo.On("Add", mock.Anything).Return(errors.New("db error"))
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	result, err := svc.Add(&Entity{})
 
@@ -229,6 +247,7 @@ func TestService_Add_Error(t *testing.T) {
 func TestService_FindAll(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	entities := []Entity{
 		{
 			Id:         1,
@@ -253,7 +272,7 @@ func TestService_FindAll(t *testing.T) {
 	}
 	mockRepo.On("FindAll").Return(entities, nil)
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	result, err := svc.FindAll()
 
@@ -267,9 +286,10 @@ func TestService_FindAll(t *testing.T) {
 func TestService_FindAll_Error(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	mockRepo.On("FindAll").Return([]Entity{}, errors.New("db error"))
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	result, err := svc.FindAll()
 
@@ -281,6 +301,7 @@ func TestService_FindAll_Error(t *testing.T) {
 func TestService_FindByIds(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	ids := []int64{1, 2}
 	entities := []Entity{
 		{
@@ -302,7 +323,7 @@ func TestService_FindByIds(t *testing.T) {
 	}
 	mockRepo.On("FindByIds", ids).Return(entities, nil)
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	result, err := svc.FindByIds(ids)
 
@@ -316,9 +337,10 @@ func TestService_FindByIds(t *testing.T) {
 func TestService_FindByIds_Error(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	mockRepo.On("FindByIds", []int64{1, 2}).Return([]Entity{}, errors.New("db error"))
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	result, err := svc.FindByIds([]int64{1, 2})
 
@@ -330,9 +352,10 @@ func TestService_FindByIds_Error(t *testing.T) {
 func TestService_DeleteById(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	mockRepo.On("DeleteById", int64(1)).Return(nil)
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	err := svc.DeleteById(1)
 
@@ -343,9 +366,10 @@ func TestService_DeleteById(t *testing.T) {
 func TestService_DeleteById_Error(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	mockRepo.On("DeleteById", int64(1)).Return(errors.New("db error"))
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	err := svc.DeleteById(1)
 
@@ -356,9 +380,10 @@ func TestService_DeleteById_Error(t *testing.T) {
 func TestService_DeleteByIds(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	mockRepo.On("DeleteByIds", []int64{1, 2}).Return(nil)
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	err := svc.DeleteByIds([]int64{1, 2})
 
@@ -369,9 +394,10 @@ func TestService_DeleteByIds(t *testing.T) {
 func TestService_DeleteByIds_Error(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	mockRepo.On("DeleteByIds", []int64{1, 2}).Return(errors.New("db error"))
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	err := svc.DeleteByIds([]int64{1, 2})
 
@@ -382,9 +408,10 @@ func TestService_DeleteByIds_Error(t *testing.T) {
 func TestService_AddWithTransaction_BeginError(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	mockRepo.On("BeginTransaction").Return(nil, errors.New("failed to begin transaction"))
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	entity := &Entity{
 		Name:       "Test User",
@@ -406,6 +433,7 @@ func TestService_AddWithTransaction_BeginError(t *testing.T) {
 func TestService_AddWithTransaction_ExistingEmployeeCheckError(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	entity := &Entity{
 		Name:       "Test User",
 		Email:      "test@example.com",
@@ -416,7 +444,7 @@ func TestService_AddWithTransaction_ExistingEmployeeCheckError(t *testing.T) {
 
 	mockRepo.On("BeginTransaction").Return((*sqlx.Tx)(nil), errors.New("transaction failed"))
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	result, err := svc.AddWithTransaction(entity)
 
@@ -429,6 +457,7 @@ func TestService_AddWithTransaction_ExistingEmployeeCheckError(t *testing.T) {
 func TestService_AddWithTransaction_EmployeeAlreadyExists(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	entity := &Entity{
 		Name:       "Test User",
 		Email:      "test@example.com",
@@ -439,7 +468,7 @@ func TestService_AddWithTransaction_EmployeeAlreadyExists(t *testing.T) {
 
 	mockRepo.On("BeginTransaction").Return((*sqlx.Tx)(nil), errors.New("failed to begin transaction"))
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	result, err := svc.AddWithTransaction(entity)
 
@@ -452,6 +481,7 @@ func TestService_AddWithTransaction_EmployeeAlreadyExists(t *testing.T) {
 func TestService_AddWithTransaction_InsertError(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 	entity := &Entity{
 		Name:       "Test User",
 		Email:      "test@example.com",
@@ -462,7 +492,7 @@ func TestService_AddWithTransaction_InsertError(t *testing.T) {
 
 	mockRepo.On("BeginTransaction").Return((*sqlx.Tx)(nil), errors.New("insert failed"))
 
-	svc := NewService(mockRepo, validator)
+	svc := NewService(mockRepo, validator, logger)
 
 	result, err := svc.AddWithTransaction(entity)
 
@@ -500,8 +530,9 @@ func TestService_AddWithTransaction_Success(t *testing.T) {
 
 	repo := NewEmployeeRepository(sqlxDB)
 	validator := new(MockValidator)
+	logger := createTestLogger()
 
-	service := NewService(repo, validator)
+	service := NewService(repo, validator, logger)
 
 	employee := &Entity{
 		Name:       "Jack Black",
@@ -532,6 +563,7 @@ func TestService_AddWithTransaction_Success(t *testing.T) {
 func TestCreateEmployee_Success(t *testing.T) {
 	mockRepo := new(MockRepo)
 	mockValidator := new(MockValidator)
+	logger := createTestLogger()
 
 	db, mock, err := sqlmock.New()
 	assert.NoError(t, err)
@@ -546,7 +578,7 @@ func TestCreateEmployee_Success(t *testing.T) {
 	tx, err := sqlxDB.Beginx()
 	assert.NoError(t, err)
 
-	service := NewService(mockRepo, mockValidator)
+	service := NewService(mockRepo, mockValidator, logger)
 
 	employee := &Entity{
 		Name:       "John Doe",
@@ -583,8 +615,9 @@ func TestCreateEmployee_Success(t *testing.T) {
 func TestCreateEmployee_ValidationError(t *testing.T) {
 	mockRepo := new(MockRepo)
 	mockValidator := new(MockValidator)
+	logger := createTestLogger()
 
-	service := NewService(mockRepo, mockValidator)
+	service := NewService(mockRepo, mockValidator, logger)
 	request := CreateRequest{Name: "A"} // слишком короткое имя
 
 	validationErr := validator.ValidationErrors{}
@@ -606,6 +639,7 @@ func TestCreateEmployee_ValidationError(t *testing.T) {
 func TestCreateEmployee_TransactionCreationError(t *testing.T) {
 	mockRepo := new(MockRepo)
 	mockValidator := new(MockValidator)
+	logger := createTestLogger()
 
 	db, mock, err := sqlmock.New()
 	assert.NoError(t, err)
@@ -641,7 +675,7 @@ func TestCreateEmployee_TransactionCreationError(t *testing.T) {
 	mockValidator.On("Validate", request).Return(nil)
 	mockRepo.On("BeginTransaction").Return(tx, txErr)
 
-	service := NewService(mockRepo, mockValidator)
+	service := NewService(mockRepo, mockValidator, logger)
 
 	result, err := service.CreateEmployee(request)
 
@@ -657,6 +691,7 @@ func TestCreateEmployee_TransactionCreationError(t *testing.T) {
 func TestCreateEmployee_FindByNameError(t *testing.T) {
 	mockRepo := new(MockRepo)
 	mockValidator := new(MockValidator)
+	logger := createTestLogger()
 
 	db, mock, err := sqlmock.New()
 	assert.NoError(t, err)
@@ -671,7 +706,7 @@ func TestCreateEmployee_FindByNameError(t *testing.T) {
 	tx, err := sqlxDB.Beginx()
 	assert.NoError(t, err)
 
-	service := NewService(mockRepo, mockValidator)
+	service := NewService(mockRepo, mockValidator, logger)
 
 	employee := &Entity{
 		Name:       "John Doe",
@@ -710,6 +745,7 @@ func TestCreateEmployee_FindByNameError(t *testing.T) {
 func TestCreateEmployee_EmployeeAlreadyExists(t *testing.T) {
 	mockRepo := new(MockRepo)
 	mockValidator := new(MockValidator)
+	logger := createTestLogger()
 
 	db, mock, err := sqlmock.New()
 	assert.NoError(t, err)
@@ -724,7 +760,7 @@ func TestCreateEmployee_EmployeeAlreadyExists(t *testing.T) {
 	tx, err := sqlxDB.Beginx()
 	assert.NoError(t, err)
 
-	service := NewService(mockRepo, mockValidator)
+	service := NewService(mockRepo, mockValidator, logger)
 
 	employee := &Entity{
 		Name:       "John Doe",
@@ -765,6 +801,7 @@ func TestCreateEmployee_EmployeeAlreadyExists(t *testing.T) {
 func TestCreateEmployee_SaveError(t *testing.T) {
 	mockRepo := new(MockRepo)
 	mockValidator := new(MockValidator)
+	logger := createTestLogger()
 
 	db, mock, err := sqlmock.New()
 	assert.NoError(t, err)
@@ -779,7 +816,7 @@ func TestCreateEmployee_SaveError(t *testing.T) {
 	tx, err := sqlxDB.Beginx()
 	assert.NoError(t, err)
 
-	service := NewService(mockRepo, mockValidator)
+	service := NewService(mockRepo, mockValidator, logger)
 
 	employee := &Entity{
 		Name:       "John Doe",
@@ -819,6 +856,7 @@ func TestCreateEmployee_SaveError(t *testing.T) {
 func BenchmarkCreateEmployee_Success(b *testing.B) {
 	mockRepo := new(MockRepo)
 	mockValidator := new(MockValidator)
+	logger := createTestLogger()
 
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -830,7 +868,7 @@ func BenchmarkCreateEmployee_Success(b *testing.B) {
 
 	sqlxDB := sqlx.NewDb(db, "postgres")
 
-	service := NewService(mockRepo, mockValidator)
+	service := NewService(mockRepo, mockValidator, logger)
 
 	employee := &Entity{
 		Name:       "John Doe",
