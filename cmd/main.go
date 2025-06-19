@@ -99,6 +99,9 @@ func build(database *sqlx.DB, cfg common.Config, logger *common.Logger) *web.Ser
 	// создаём веб-сервер
 	var server = web.NewServer()
 
+	// Добавляем кастомный middleware для логирования
+	server.App.Use(web.CustomMiddleware(logger.Logger))
+
 	// создаём валидатор
 	var vld = validator.New()
 
