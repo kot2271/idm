@@ -1,6 +1,7 @@
 package employee
 
 import (
+	"context"
 	"fmt"
 
 	"idm/inner/common"
@@ -17,16 +18,16 @@ type Service struct {
 }
 
 type Repo interface {
-	FindById(id int64) (Entity, error)
-	Add(employee *Entity) error
-	AddWithTransaction(tx *sqlx.Tx, employee *Entity) error
-	FindAll() ([]Entity, error)
-	FindByIds(ids []int64) ([]Entity, error)
-	DeleteById(id int64) error
-	DeleteByIds(ids []int64) error
-	BeginTransaction() (*sqlx.Tx, error)
-	FindByNameTx(tx *sqlx.Tx, name string) (bool, error)
-	SaveTx(tx *sqlx.Tx, employee Entity) (int64, error)
+	FindById(ctx context.Context, id int64) (Entity, error)
+	Add(ctx context.Context, employee *Entity) error
+	AddWithTransaction(ctx context.Context, tx *sqlx.Tx, employee *Entity) error
+	FindAll(ctx context.Context) ([]Entity, error)
+	FindByIds(ctx context.Context, ids []int64) ([]Entity, error)
+	DeleteById(ctx context.Context, id int64) error
+	DeleteByIds(ctx context.Context, ids []int64) error
+	BeginTransaction(ctx context.Context) (*sqlx.Tx, error)
+	FindByNameTx(ctx context.Context, tx *sqlx.Tx, name string) (bool, error)
+	SaveTx(ctx context.Context, tx *sqlx.Tx, employee Entity) (int64, error)
 }
 
 type Validator interface {
@@ -44,7 +45,8 @@ func NewService(repo Repo, validator Validator, logger *common.Logger) *Service 
 
 // Метод для создания нового сотрудника
 // принимает на вход CreateRequest - структура запроса на создание сотрудника
-func (svc *Service) CreateEmployee(request CreateRequest) (int64, error) {
+func (svc *Service) CreateEmployee(ctx context.Context, request CreateRequest) (int64, error) {
+	// context.Context нужен для поддержки отмены, дедлайнов и трейсинга запросов к БД.
 	svc.logger.Info("Creating new employee", zap.String("name", request.Name))
 
 	if err := svc.validateCreateRequest(request); err != nil {
@@ -52,7 +54,7 @@ func (svc *Service) CreateEmployee(request CreateRequest) (int64, error) {
 	}
 
 	// запрашиваем у репозитория новую транзакцию
-	tx, err := svc.repo.BeginTransaction()
+	tx, err := svc.repo.BeginTransaction(ctx)
 	defer func() {
 		if err != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
@@ -77,7 +79,7 @@ func (svc *Service) CreateEmployee(request CreateRequest) (int64, error) {
 	}
 
 	// в рамках транзакции проверяем наличие в базе данных работника с таким же именем
-	isExist, err := svc.repo.FindByNameTx(tx, request.Name)
+	isExist, err := svc.repo.FindByNameTx(ctx, tx, request.Name)
 	if err != nil {
 		svc.logger.Error("Failed to check if employee exists",
 			zap.String("name", request.Name),
@@ -92,7 +94,7 @@ func (svc *Service) CreateEmployee(request CreateRequest) (int64, error) {
 
 	// в случае отсутствия сотрудника с таким же именем - в рамках этой же транзакции вызываем метод репозитория,
 	// который должен будет создать нового сотрудника
-	newEmployeeId, err := svc.repo.SaveTx(tx, request.ToEntity())
+	newEmployeeId, err := svc.repo.SaveTx(ctx, tx, request.ToEntity())
 	if err != nil {
 		svc.logger.Error("Failed to save new employee",
 			zap.String("name", request.Name),
@@ -130,10 +132,10 @@ func (svc *Service) validateCreateRequest(request CreateRequest) error {
 	return nil
 }
 
-func (svc *Service) FindById(id int64) (Response, error) {
+func (svc *Service) FindById(ctx context.Context, id int64) (Response, error) {
 	svc.logger.Debug("Finding employee by ID", zap.Int64("id", id))
 
-	var entity, err = svc.repo.FindById(id)
+	var entity, err = svc.repo.FindById(ctx, id)
 	if err != nil {
 		svc.logger.Error("Failed to find employee by ID",
 			zap.Int64("id", id),
@@ -145,7 +147,7 @@ func (svc *Service) FindById(id int64) (Response, error) {
 	return entity.toResponse(), nil
 }
 
-func (svc *Service) Add(employee *Entity) (Response, error) {
+func (svc *Service) Add(ctx context.Context, employee *Entity) (Response, error) {
 	svc.logger.Info("Adding employee", zap.String("name", employee.Name))
 
 	err := svc.validator.Validate(employee)
@@ -163,7 +165,7 @@ func (svc *Service) Add(employee *Entity) (Response, error) {
 		return Response{}, common.RequestValidationError{Message: err.Error()}
 	}
 
-	err = svc.repo.Add(employee)
+	err = svc.repo.Add(ctx, employee)
 	if err != nil {
 		svc.logger.Error("Failed to add employee",
 			zap.String("name", employee.Name),
@@ -174,10 +176,10 @@ func (svc *Service) Add(employee *Entity) (Response, error) {
 	return employee.toResponse(), nil
 }
 
-func (svc *Service) AddWithTransaction(employee *Entity) (Response, error) {
+func (svc *Service) AddWithTransaction(ctx context.Context, employee *Entity) (Response, error) {
 	svc.logger.Info("Adding employee with transaction", zap.String("name", employee.Name))
 
-	tx, err := svc.repo.BeginTransaction()
+	tx, err := svc.repo.BeginTransaction(ctx)
 	if err != nil {
 		svc.logger.Error("Failed to begin transaction for employee addition",
 			zap.String("name", employee.Name),
@@ -211,7 +213,7 @@ func (svc *Service) AddWithTransaction(employee *Entity) (Response, error) {
 		}
 	}()
 
-	err = svc.repo.AddWithTransaction(tx, employee)
+	err = svc.repo.AddWithTransaction(ctx, tx, employee)
 	if err != nil {
 		svc.logger.Error("Transaction failed while adding employee",
 			zap.String("name", employee.Name),
@@ -223,10 +225,10 @@ func (svc *Service) AddWithTransaction(employee *Entity) (Response, error) {
 	return employee.toResponse(), nil
 }
 
-func (svc *Service) FindAll() ([]Response, error) {
+func (svc *Service) FindAll(ctx context.Context) ([]Response, error) {
 	svc.logger.Debug("Finding all employees")
 
-	entities, err := svc.repo.FindAll()
+	entities, err := svc.repo.FindAll(ctx)
 	if err != nil {
 		svc.logger.Error("Failed to find all employees", zap.Error(err))
 		return nil, fmt.Errorf("error finding all employees: %w", err)
@@ -240,10 +242,10 @@ func (svc *Service) FindAll() ([]Response, error) {
 	return responses, nil
 }
 
-func (svc *Service) FindByIds(ids []int64) ([]Response, error) {
+func (svc *Service) FindByIds(ctx context.Context, ids []int64) ([]Response, error) {
 	svc.logger.Debug("Finding employees by IDs", zap.Int64s("ids", ids))
 
-	entities, err := svc.repo.FindByIds(ids)
+	entities, err := svc.repo.FindByIds(ctx, ids)
 	if err != nil {
 		svc.logger.Error("Failed to find employees by IDs",
 			zap.Int64s("ids", ids),
@@ -261,10 +263,10 @@ func (svc *Service) FindByIds(ids []int64) ([]Response, error) {
 	return responses, nil
 }
 
-func (svc *Service) DeleteById(id int64) error {
+func (svc *Service) DeleteById(ctx context.Context, id int64) error {
 	svc.logger.Info("Deleting employee by ID", zap.Int64("id", id))
 
-	err := svc.repo.DeleteById(id)
+	err := svc.repo.DeleteById(ctx, id)
 	if err != nil {
 		svc.logger.Error("Failed to delete employee by ID",
 			zap.Int64("id", id),
@@ -276,10 +278,10 @@ func (svc *Service) DeleteById(id int64) error {
 	return nil
 }
 
-func (svc *Service) DeleteByIds(ids []int64) error {
+func (svc *Service) DeleteByIds(ctx context.Context, ids []int64) error {
 	svc.logger.Info("Deleting employees by IDs", zap.Int64s("ids", ids))
 
-	err := svc.repo.DeleteByIds(ids)
+	err := svc.repo.DeleteByIds(ctx, ids)
 	if err != nil {
 		svc.logger.Error("Failed to delete employees by IDs",
 			zap.Int64s("ids", ids),

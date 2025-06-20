@@ -1,6 +1,7 @@
 package role
 
 import (
+	"context"
 	"fmt"
 
 	"idm/inner/common"
@@ -17,15 +18,15 @@ type Service struct {
 }
 
 type Repo interface {
-	FindById(id int64) (Entity, error)
-	Add(role *Entity) error
-	FindAll() ([]Entity, error)
-	FindByIds(ids []int64) ([]Entity, error)
-	DeleteById(id int64) error
-	DeleteByIds(ids []int64) error
-	BeginTransaction() (*sqlx.Tx, error)
-	FindByNameTx(tx *sqlx.Tx, name string) (bool, error)
-	SaveTx(tx *sqlx.Tx, role Entity) (int64, error)
+	FindById(ctx context.Context, id int64) (Entity, error)
+	Add(ctx context.Context, role *Entity) error
+	FindAll(ctx context.Context) ([]Entity, error)
+	FindByIds(ctx context.Context, ids []int64) ([]Entity, error)
+	DeleteById(ctx context.Context, id int64) error
+	DeleteByIds(ctx context.Context, ids []int64) error
+	BeginTransaction(ctx context.Context) (*sqlx.Tx, error)
+	FindByNameTx(ctx context.Context, tx *sqlx.Tx, name string) (bool, error)
+	SaveTx(ctx context.Context, tx *sqlx.Tx, role Entity) (int64, error)
 }
 
 type Validator interface {
@@ -43,7 +44,7 @@ func NewService(repo Repo, validator Validator, logger *common.Logger) *Service 
 
 // Метод для создания новой роли
 // принимает на вход CreateRequest - структура запроса на создание новой роли
-func (svc *Service) CreateRole(request CreateRequest) (int64, error) {
+func (svc *Service) CreateRole(ctx context.Context, request CreateRequest) (int64, error) {
 	svc.logger.Info("Creating new role", zap.String("name", request.Name))
 
 	if err := svc.validateCreateRequest(request); err != nil {
@@ -51,7 +52,7 @@ func (svc *Service) CreateRole(request CreateRequest) (int64, error) {
 	}
 
 	// запрашиваем у репозитория новую транзакцию
-	tx, err := svc.repo.BeginTransaction()
+	tx, err := svc.repo.BeginTransaction(ctx)
 	defer func() {
 		if err != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
@@ -76,7 +77,7 @@ func (svc *Service) CreateRole(request CreateRequest) (int64, error) {
 	}
 
 	// в рамках транзакции проверяем наличие в базе данных роли с таким же именем
-	isExist, err := svc.repo.FindByNameTx(tx, request.Name)
+	isExist, err := svc.repo.FindByNameTx(ctx, tx, request.Name)
 	if err != nil {
 		svc.logger.Error("Failed to check role existence",
 			zap.String("name", request.Name),
@@ -91,7 +92,7 @@ func (svc *Service) CreateRole(request CreateRequest) (int64, error) {
 
 	// в случае отсутствия роли с таким же именем - в рамках этой же транзакции вызываем метод репозитория,
 	// который должен будет создать новую роль
-	newRoleId, err := svc.repo.SaveTx(tx, request.ToEntity())
+	newRoleId, err := svc.repo.SaveTx(ctx, tx, request.ToEntity())
 	if err != nil {
 		svc.logger.Error("Failed to save role",
 			zap.String("name", request.Name),
@@ -129,10 +130,10 @@ func (svc *Service) validateCreateRequest(request CreateRequest) error {
 	return nil
 }
 
-func (svc *Service) FindById(id int64) (Response, error) {
+func (svc *Service) FindById(ctx context.Context, id int64) (Response, error) {
 	svc.logger.Debug("Finding role by ID", zap.Int64("id", id))
 
-	var role, err = svc.repo.FindById(id)
+	var role, err = svc.repo.FindById(ctx, id)
 	if err != nil {
 		svc.logger.Error("Failed to find role by ID",
 			zap.Int64("id", id),
@@ -144,7 +145,7 @@ func (svc *Service) FindById(id int64) (Response, error) {
 	return role.toResponse(), nil
 }
 
-func (svc *Service) Add(role *Entity) (Response, error) {
+func (svc *Service) Add(ctx context.Context, role *Entity) (Response, error) {
 	svc.logger.Info("Adding role", zap.String("name", role.Name))
 
 	err := svc.validator.Validate(role)
@@ -162,7 +163,7 @@ func (svc *Service) Add(role *Entity) (Response, error) {
 		return Response{}, common.RequestValidationError{Message: err.Error()}
 	}
 
-	err = svc.repo.Add(role)
+	err = svc.repo.Add(ctx, role)
 	if err != nil {
 		svc.logger.Error("Failed to add role",
 			zap.String("name", role.Name),
@@ -174,10 +175,10 @@ func (svc *Service) Add(role *Entity) (Response, error) {
 	return role.toResponse(), nil
 }
 
-func (svc *Service) FindAll() ([]Response, error) {
+func (svc *Service) FindAll(ctx context.Context) ([]Response, error) {
 	svc.logger.Debug("Fetching all roles")
 
-	roles, err := svc.repo.FindAll()
+	roles, err := svc.repo.FindAll(ctx)
 	if err != nil {
 		svc.logger.Error("Failed to fetch all roles", zap.Error(err))
 		return nil, fmt.Errorf("error finding all roles: %w", err)
@@ -192,7 +193,7 @@ func (svc *Service) FindAll() ([]Response, error) {
 	return responses, nil
 }
 
-func (svc *Service) FindByIds(ids []int64) ([]Response, error) {
+func (svc *Service) FindByIds(ctx context.Context, ids []int64) ([]Response, error) {
 	svc.logger.Debug("Finding roles by IDs", zap.Int64s("ids", ids))
 
 	if len(ids) == 0 {
@@ -200,7 +201,7 @@ func (svc *Service) FindByIds(ids []int64) ([]Response, error) {
 		return []Response{}, nil
 	}
 
-	roles, err := svc.repo.FindByIds(ids)
+	roles, err := svc.repo.FindByIds(ctx, ids)
 	if err != nil {
 		svc.logger.Error("Failed to find roles by IDs",
 			zap.Int64s("ids", ids),
@@ -219,10 +220,10 @@ func (svc *Service) FindByIds(ids []int64) ([]Response, error) {
 	return responses, nil
 }
 
-func (svc *Service) DeleteById(id int64) error {
+func (svc *Service) DeleteById(ctx context.Context, id int64) error {
 	svc.logger.Info("Deleting role by ID", zap.Int64("id", id))
 
-	err := svc.repo.DeleteById(id)
+	err := svc.repo.DeleteById(ctx, id)
 	if err != nil {
 		svc.logger.Error("Failed to delete role by ID",
 			zap.Int64("id", id),
@@ -233,7 +234,7 @@ func (svc *Service) DeleteById(id int64) error {
 	return nil
 }
 
-func (svc *Service) DeleteByIds(ids []int64) error {
+func (svc *Service) DeleteByIds(ctx context.Context, ids []int64) error {
 	svc.logger.Info("Deleting roles by IDs", zap.Int64s("ids", ids))
 
 	if len(ids) == 0 {
@@ -241,7 +242,7 @@ func (svc *Service) DeleteByIds(ids []int64) error {
 		return nil
 	}
 
-	err := svc.repo.DeleteByIds(ids)
+	err := svc.repo.DeleteByIds(ctx, ids)
 	if err != nil {
 		svc.logger.Error("Failed to delete roles by IDs",
 			zap.Int64s("ids", ids),

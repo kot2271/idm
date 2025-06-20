@@ -1,6 +1,7 @@
 package employee
 
 import (
+	"context"
 	"errors"
 	"idm/inner/common"
 	"idm/inner/web"
@@ -18,12 +19,12 @@ type Controller struct {
 
 // интерфейс сервиса employee.Service
 type Svc interface {
-	FindById(id int64) (Response, error)
-	CreateEmployee(request CreateRequest) (int64, error)
-	DeleteById(id int64) error
-	FindAll() ([]Response, error)
-	FindByIds(ids []int64) ([]Response, error)
-	DeleteByIds(ids []int64) error
+	FindById(ctx context.Context, id int64) (Response, error)
+	CreateEmployee(ctx context.Context, request CreateRequest) (int64, error)
+	DeleteById(ctx context.Context, id int64) error
+	FindAll(ctx context.Context) ([]Response, error)
+	FindByIds(ctx context.Context, ids []int64) ([]Response, error)
+	DeleteByIds(ctx context.Context, ids []int64) error
 }
 
 func NewController(server *web.Server, employeeService Svc, logger *common.Logger) *Controller {
@@ -67,8 +68,8 @@ func (c *Controller) CreateEmployee(ctx *fiber.Ctx) error {
 	// логируем тело запроса
 	c.logger.Debug("create employee: received request", zap.Any("request", request))
 
-	// вызываем метод CreateEmployee сервиса employee.Service
-	var newEmployeeId, err = c.employeeService.CreateEmployee(request)
+	// context.Context нужен для поддержки отмены, дедлайнов и трейсинга запросов к БД.
+	newEmployeeId, err := c.employeeService.CreateEmployee(ctx.Context(), request)
 	if err != nil {
 		return c.handleCreateEmployeeError(ctx, err, request)
 	}
@@ -138,7 +139,8 @@ func (c *Controller) GetEmployee(ctx *fiber.Ctx) error {
 		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Invalid employee ID")
 	}
 
-	employee, err := c.employeeService.FindById(id)
+	// context.Context нужен для поддержки отмены, дедлайнов и трейсинга запросов к БД.
+	employee, err := c.employeeService.FindById(ctx.Context(), id)
 	if err != nil {
 		c.logger.Error("Failed to find employee",
 			zap.Int64("id", id),
@@ -171,7 +173,8 @@ func (c *Controller) DeleteEmployee(ctx *fiber.Ctx) error {
 		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Invalid employee ID")
 	}
 
-	err = c.employeeService.DeleteById(id)
+	// context.Context нужен для поддержки отмены, дедлайнов и трейсинга запросов к БД.
+	err = c.employeeService.DeleteById(ctx.Context(), id)
 	if err != nil {
 		c.logger.Error("Failed to delete employee",
 			zap.Int64("id", id),
@@ -193,7 +196,8 @@ func (c *Controller) FindAllEmployee(ctx *fiber.Ctx) error {
 		zap.String("path", ctx.Path()),
 		zap.String("ip", ctx.IP()))
 
-	employees, err := c.employeeService.FindAll()
+	// context.Context нужен для поддержки отмены, дедлайнов и трейсинга запросов к БД.
+	employees, err := c.employeeService.FindAll(ctx.Context())
 	if err != nil {
 		c.logger.Error("Failed to find all employees",
 			zap.Error(err),
@@ -233,7 +237,8 @@ func (c *Controller) FindEmployeeByIds(ctx *fiber.Ctx) error {
 		zap.Int64s("ids", request.Ids),
 		zap.String("ip", ctx.IP()))
 
-	employees, err := c.employeeService.FindByIds(request.Ids)
+	// context.Context нужен для поддержки отмены, дедлайнов и трейсинга запросов к БД.
+	employees, err := c.employeeService.FindByIds(ctx.Context(), request.Ids)
 	if err != nil {
 		c.logger.Error("Failed to find employees by IDs",
 			zap.Int64s("ids", request.Ids),
@@ -276,7 +281,8 @@ func (c *Controller) DeleteEmployeeByIds(ctx *fiber.Ctx) error {
 		zap.Int64s("ids", request.Ids),
 		zap.String("ip", ctx.IP()))
 
-	err := c.employeeService.DeleteByIds(request.Ids)
+	// context.Context нужен для поддержки отмены, дедлайнов и трейсинга запросов к БД.
+	err := c.employeeService.DeleteByIds(ctx.Context(), request.Ids)
 	if err != nil {
 		c.logger.Error("Failed to delete employees by IDs",
 			zap.Int64s("ids", request.Ids),

@@ -1,6 +1,7 @@
 package role
 
 import (
+	"context"
 	"errors"
 	"idm/inner/common"
 	"testing"
@@ -9,7 +10,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
+	mock "github.com/stretchr/testify/mock"
 )
 
 // Объявляем структуру мок-репозитория
@@ -26,37 +27,37 @@ func (m *MockValidator) Validate(request any) error {
 	return args.Error(0)
 }
 
-func (m *MockRepo) FindById(id int64) (Entity, error) {
+func (m *MockRepo) FindById(ctx context.Context, id int64) (Entity, error) {
 	args := m.Called(id)
 	return args.Get(0).(Entity), args.Error(1)
 }
 
-func (m *MockRepo) Add(role *Entity) error {
+func (m *MockRepo) Add(ctx context.Context, role *Entity) error {
 	args := m.Called(role)
 	return args.Error(0)
 }
 
-func (m *MockRepo) FindAll() ([]Entity, error) {
+func (m *MockRepo) FindAll(ctx context.Context) ([]Entity, error) {
 	args := m.Called()
 	return args.Get(0).([]Entity), args.Error(1)
 }
 
-func (m *MockRepo) FindByIds(ids []int64) ([]Entity, error) {
+func (m *MockRepo) FindByIds(ctx context.Context, ids []int64) ([]Entity, error) {
 	args := m.Called(ids)
 	return args.Get(0).([]Entity), args.Error(1)
 }
 
-func (m *MockRepo) DeleteById(id int64) error {
+func (m *MockRepo) DeleteById(ctx context.Context, id int64) error {
 	args := m.Called(id)
 	return args.Error(0)
 }
 
-func (m *MockRepo) DeleteByIds(ids []int64) error {
+func (m *MockRepo) DeleteByIds(ctx context.Context, ids []int64) error {
 	args := m.Called(ids)
 	return args.Error(0)
 }
 
-func (m *MockRepo) BeginTransaction() (*sqlx.Tx, error) {
+func (m *MockRepo) BeginTransaction(ctx context.Context) (*sqlx.Tx, error) {
 	args := m.Called()
 	var tx *sqlx.Tx
 	if val := args.Get(0); val != nil {
@@ -65,12 +66,12 @@ func (m *MockRepo) BeginTransaction() (*sqlx.Tx, error) {
 	return tx, args.Error(1)
 }
 
-func (m *MockRepo) FindByNameTx(tx *sqlx.Tx, name string) (bool, error) {
+func (m *MockRepo) FindByNameTx(ctx context.Context, tx *sqlx.Tx, name string) (bool, error) {
 	args := m.Called(tx, name)
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *MockRepo) SaveTx(tx *sqlx.Tx, role Entity) (int64, error) {
+func (m *MockRepo) SaveTx(ctx context.Context, tx *sqlx.Tx, role Entity) (int64, error) {
 	args := m.Called(tx, role)
 	return args.Get(0).(int64), args.Error(1)
 }
@@ -107,7 +108,7 @@ func TestService_FindById(t *testing.T) {
 
 	svc := NewService(mockRepo, validator, logger)
 
-	result, err := svc.FindById(2)
+	result, err := svc.FindById(context.Background(), 2)
 
 	assert.NoError(t, err)
 	assert.Equal(t, entity.toResponse(), result)
@@ -122,7 +123,7 @@ func TestService_FindById_Error(t *testing.T) {
 
 	svc := NewService(mockRepo, validator, logger)
 
-	result, err := svc.FindById(2)
+	result, err := svc.FindById(context.Background(), 2)
 
 	assert.Error(t, err)
 	assert.Equal(t, Response{}, result)
@@ -149,7 +150,7 @@ func TestService_Add(t *testing.T) {
 
 	validator.On("Validate", entity).Return(nil)
 
-	result, err := svc.Add(entity)
+	result, err := svc.Add(context.Background(), entity)
 
 	assert.NoError(t, err)
 	assert.Equal(t, entity.toResponse(), result)
@@ -166,7 +167,7 @@ func TestService_Add_Error(t *testing.T) {
 
 	validator.On("Validate", mock.Anything).Return(nil)
 
-	result, err := svc.Add(&Entity{})
+	result, err := svc.Add(context.Background(), &Entity{})
 
 	assert.Error(t, err)
 	assert.Equal(t, Response{}, result)
@@ -200,11 +201,11 @@ func TestService_FindAll(t *testing.T) {
 			UpdatedAt: time.Now(),
 		},
 	}
-	mockRepo.On("FindAll").Return(entities, nil)
+	mockRepo.On("FindAll", mock.Anything).Return(entities, nil)
 
 	svc := NewService(mockRepo, validator, logger)
 
-	result, err := svc.FindAll()
+	result, err := svc.FindAll(context.Background())
 
 	assert.NoError(t, err)
 	assert.Len(t, result, 2)
@@ -217,11 +218,11 @@ func TestService_FindAll_Error(t *testing.T) {
 	mockRepo := new(MockRepo)
 	validator := new(MockValidator)
 	logger := createTestLogger()
-	mockRepo.On("FindAll").Return([]Entity{}, errors.New("db error"))
+	mockRepo.On("FindAll", mock.Anything).Return([]Entity{}, errors.New("db error"))
 
 	svc := NewService(mockRepo, validator, logger)
 
-	result, err := svc.FindAll()
+	result, err := svc.FindAll(context.Background())
 
 	assert.Error(t, err)
 	assert.Equal(t, 0, len(result))
@@ -260,7 +261,7 @@ func TestService_FindByIds(t *testing.T) {
 
 	svc := NewService(mockRepo, validator, logger)
 
-	result, err := svc.FindByIds(ids)
+	result, err := svc.FindByIds(context.Background(), ids)
 
 	assert.NoError(t, err)
 	assert.Len(t, result, 2)
@@ -277,7 +278,7 @@ func TestService_FindByIds_Error(t *testing.T) {
 
 	svc := NewService(mockRepo, validator, logger)
 
-	result, err := svc.FindByIds([]int64{1, 2})
+	result, err := svc.FindByIds(context.Background(), []int64{1, 2})
 
 	assert.Error(t, err)
 	assert.Equal(t, 0, len(result))
@@ -292,7 +293,7 @@ func TestService_DeleteById(t *testing.T) {
 
 	svc := NewService(mockRepo, validator, logger)
 
-	err := svc.DeleteById(2)
+	err := svc.DeleteById(context.Background(), 2)
 
 	assert.NoError(t, err)
 	mockRepo.AssertExpectations(t)
@@ -306,7 +307,7 @@ func TestService_DeleteById_Error(t *testing.T) {
 
 	svc := NewService(mockRepo, validator, logger)
 
-	err := svc.DeleteById(1)
+	err := svc.DeleteById(context.Background(), 1)
 
 	assert.Error(t, err)
 	mockRepo.AssertExpectations(t)
@@ -320,7 +321,7 @@ func TestService_DeleteByIds(t *testing.T) {
 
 	svc := NewService(mockRepo, validator, logger)
 
-	err := svc.DeleteByIds([]int64{2, 3})
+	err := svc.DeleteByIds(context.Background(), []int64{2, 3})
 
 	assert.NoError(t, err)
 	mockRepo.AssertExpectations(t)
@@ -334,7 +335,7 @@ func TestService_DeleteByIds_Error(t *testing.T) {
 
 	svc := NewService(mockRepo, validator, logger)
 
-	err := svc.DeleteByIds([]int64{1, 2})
+	err := svc.DeleteByIds(context.Background(), []int64{1, 2})
 
 	assert.Error(t, err)
 	mockRepo.AssertExpectations(t)
@@ -347,15 +348,15 @@ func TestService_CreateRole(t *testing.T) {
 		mockValidator := new(MockValidator)
 		logger := createTestLogger()
 
-		db, mock, err := sqlmock.New()
+		db, sqlMock, err := sqlmock.New()
 		assert.NoError(t, err)
 		defer func() {
 			_ = db.Close()
 		}()
 
 		sqlxDB := sqlx.NewDb(db, "postgres")
-		mock.ExpectBegin()
-		mock.ExpectRollback()
+		sqlMock.ExpectBegin()
+		sqlMock.ExpectRollback()
 
 		tx, err := sqlxDB.Beginx()
 		assert.NoError(t, err)
@@ -372,11 +373,11 @@ func TestService_CreateRole(t *testing.T) {
 		expectedRoleId := int64(123)
 
 		mockValidator.On("Validate", request).Return(nil)
-		mockRepo.On("BeginTransaction").Return(tx, nil)
+		mockRepo.On("BeginTransaction", mock.Anything).Return(tx, nil)
 		mockRepo.On("FindByNameTx", tx, "TestRole").Return(false, nil)
 		mockRepo.On("SaveTx", tx, request.ToEntity()).Return(expectedRoleId, nil)
 
-		roleId, err := service.CreateRole(request)
+		roleId, err := service.CreateRole(context.Background(), request)
 
 		assert.NoError(t, err)
 		assert.Equal(t, expectedRoleId, roleId)
@@ -401,7 +402,7 @@ func TestService_CreateRole(t *testing.T) {
 
 		mockValidator.On("Validate", request).Return(validationError)
 
-		roleId, err := service.CreateRole(request)
+		roleId, err := service.CreateRole(context.Background(), request)
 
 		assert.Error(t, err)
 		assert.Equal(t, int64(0), roleId)
@@ -417,15 +418,15 @@ func TestService_CreateRole(t *testing.T) {
 		mockValidator := new(MockValidator)
 		logger := createTestLogger()
 
-		db, mock, err := sqlmock.New()
+		db, sqlMock, err := sqlmock.New()
 		assert.NoError(t, err)
 		defer func() {
 			_ = db.Close()
 		}()
 
 		sqlxDB := sqlx.NewDb(db, "postgres")
-		mock.ExpectBegin()
-		mock.ExpectRollback()
+		sqlMock.ExpectBegin()
+		sqlMock.ExpectRollback()
 
 		tx, err := sqlxDB.Beginx()
 		assert.NoError(t, err)
@@ -441,9 +442,9 @@ func TestService_CreateRole(t *testing.T) {
 		transactionError := errors.New("database connection error")
 
 		mockValidator.On("Validate", request).Return(nil)
-		mockRepo.On("BeginTransaction").Return(tx, transactionError)
+		mockRepo.On("BeginTransaction", mock.Anything).Return(tx, transactionError)
 
-		roleId, err := service.CreateRole(request)
+		roleId, err := service.CreateRole(context.Background(), request)
 
 		assert.Error(t, err)
 		assert.Equal(t, int64(0), roleId)
@@ -459,15 +460,15 @@ func TestService_CreateRole(t *testing.T) {
 		mockValidator := new(MockValidator)
 		logger := createTestLogger()
 
-		db, mock, err := sqlmock.New()
+		db, sqlMock, err := sqlmock.New()
 		assert.NoError(t, err)
 		defer func() {
 			_ = db.Close()
 		}()
 
 		sqlxDB := sqlx.NewDb(db, "postgres")
-		mock.ExpectBegin()
-		mock.ExpectRollback()
+		sqlMock.ExpectBegin()
+		sqlMock.ExpectRollback()
 
 		tx, err := sqlxDB.Beginx()
 		assert.NoError(t, err)
@@ -484,16 +485,19 @@ func TestService_CreateRole(t *testing.T) {
 		mockRepo.On("BeginTransaction").Return(tx, nil)
 		mockRepo.On("FindByNameTx", tx, "ExistingRole").Return(true, nil)
 
-		roleId, err := service.CreateRole(request)
+		roleId, err := service.CreateRole(context.Background(), request)
 
 		assert.Error(t, err)
 		assert.Equal(t, int64(0), roleId)
-		assert.IsType(t, common.AlreadyExistsError{}, err)
+
+		var alreadyExistsErr common.AlreadyExistsError
+		assert.True(t, errors.As(err, &alreadyExistsErr))
 		assert.Contains(t, err.Error(), "role with name ExistingRole already exists")
 
 		mockValidator.AssertExpectations(t)
 		mockRepo.AssertExpectations(t)
 		mockRepo.AssertNotCalled(t, "SaveTx")
+		assert.Error(t, sqlMock.ExpectationsWereMet())
 	})
 
 	t.Run("Error when searching for a role by name", func(t *testing.T) {
@@ -501,15 +505,15 @@ func TestService_CreateRole(t *testing.T) {
 		mockValidator := new(MockValidator)
 		logger := createTestLogger()
 
-		db, mock, err := sqlmock.New()
+		db, sqlMock, err := sqlmock.New()
 		assert.NoError(t, err)
 		defer func() {
 			_ = db.Close()
 		}()
 
 		sqlxDB := sqlx.NewDb(db, "postgres")
-		mock.ExpectBegin()
-		mock.ExpectRollback()
+		sqlMock.ExpectBegin()
+		sqlMock.ExpectRollback()
 
 		tx, err := sqlxDB.Beginx()
 		assert.NoError(t, err)
@@ -528,7 +532,7 @@ func TestService_CreateRole(t *testing.T) {
 		mockRepo.On("BeginTransaction").Return(tx, nil)
 		mockRepo.On("FindByNameTx", tx, "TestRole").Return(false, findError)
 
-		roleId, err := service.CreateRole(request)
+		roleId, err := service.CreateRole(context.Background(), request)
 
 		assert.Error(t, err)
 		assert.Equal(t, int64(0), roleId)
@@ -538,6 +542,7 @@ func TestService_CreateRole(t *testing.T) {
 		mockValidator.AssertExpectations(t)
 		mockRepo.AssertExpectations(t)
 		mockRepo.AssertNotCalled(t, "SaveTx")
+		assert.NoError(t, sqlMock.ExpectationsWereMet())
 	})
 
 	t.Run("Error saving a role", func(t *testing.T) {
@@ -545,15 +550,15 @@ func TestService_CreateRole(t *testing.T) {
 		mockValidator := new(MockValidator)
 		logger := createTestLogger()
 
-		db, mock, err := sqlmock.New()
+		db, sqlMock, err := sqlmock.New()
 		assert.NoError(t, err)
 		defer func() {
 			_ = db.Close()
 		}()
 
 		sqlxDB := sqlx.NewDb(db, "postgres")
-		mock.ExpectBegin()
-		mock.ExpectRollback()
+		sqlMock.ExpectBegin()
+		sqlMock.ExpectRollback()
 
 		tx, err := sqlxDB.Beginx()
 		assert.NoError(t, err)
@@ -573,7 +578,7 @@ func TestService_CreateRole(t *testing.T) {
 		mockRepo.On("FindByNameTx", tx, "TestRole").Return(false, nil)
 		mockRepo.On("SaveTx", tx, request.ToEntity()).Return(int64(0), saveError)
 
-		roleId, err := service.CreateRole(request)
+		roleId, err := service.CreateRole(context.Background(), request)
 
 		assert.Error(t, err)
 		assert.Equal(t, int64(0), roleId)
@@ -589,15 +594,15 @@ func TestService_CreateRole(t *testing.T) {
 		mockValidator := new(MockValidator)
 		logger := createTestLogger()
 
-		db, mock, err := sqlmock.New()
+		db, sqlMock, err := sqlmock.New()
 		assert.NoError(t, err)
 		defer func() {
 			_ = db.Close()
 		}()
 
 		sqlxDB := sqlx.NewDb(db, "postgres")
-		mock.ExpectBegin()
-		mock.ExpectRollback()
+		sqlMock.ExpectBegin()
+		sqlMock.ExpectRollback()
 
 		tx, err := sqlxDB.Beginx()
 		assert.NoError(t, err)
@@ -619,7 +624,7 @@ func TestService_CreateRole(t *testing.T) {
 		mockRepo.On("FindByNameTx", tx, "ChildRole").Return(false, nil)
 		mockRepo.On("SaveTx", tx, request.ToEntity()).Return(expectedRoleId, nil)
 
-		roleId, err := service.CreateRole(request)
+		roleId, err := service.CreateRole(context.Background(), request)
 
 		assert.NoError(t, err)
 		assert.Equal(t, expectedRoleId, roleId)
@@ -636,15 +641,15 @@ func BenchmarkService_CreateRole(b *testing.B) {
 		mockValidator := new(MockValidator)
 		logger := createTestLogger()
 
-		db, mock, err := sqlmock.New()
+		db, sqlMock, err := sqlmock.New()
 		assert.NoError(b, err)
 		defer func() {
 			_ = db.Close()
 		}()
 
 		sqlxDB := sqlx.NewDb(db, "postgres")
-		mock.ExpectBegin()
-		mock.ExpectRollback()
+		sqlMock.ExpectBegin()
+		sqlMock.ExpectRollback()
 
 		tx, err := sqlxDB.Beginx()
 		assert.NoError(b, err)
@@ -668,7 +673,7 @@ func BenchmarkService_CreateRole(b *testing.B) {
 		b.ResetTimer()
 
 		for b.Loop() {
-			_, err := service.CreateRole(request)
+			_, err := service.CreateRole(context.Background(), request)
 			if err != nil {
 				b.Fatalf("Unexpected error during benchmark: %v", err)
 			}
@@ -694,7 +699,7 @@ func BenchmarkService_CreateRole(b *testing.B) {
 		b.ResetTimer()
 
 		for b.Loop() {
-			_, err := service.CreateRole(request)
+			_, err := service.CreateRole(context.Background(), request)
 			if err == nil {
 				b.Fatal("Expected validation error, got nil")
 			}
@@ -706,15 +711,15 @@ func BenchmarkService_CreateRole(b *testing.B) {
 		mockValidator := new(MockValidator)
 		logger := createTestLogger()
 
-		db, mock, err := sqlmock.New()
+		db, sqlMock, err := sqlmock.New()
 		assert.NoError(b, err)
 		defer func() {
 			_ = db.Close()
 		}()
 
 		sqlxDB := sqlx.NewDb(db, "postgres")
-		mock.ExpectBegin()
-		mock.ExpectRollback()
+		sqlMock.ExpectBegin()
+		sqlMock.ExpectRollback()
 
 		tx, err := sqlxDB.Beginx()
 		assert.NoError(b, err)
@@ -733,7 +738,7 @@ func BenchmarkService_CreateRole(b *testing.B) {
 		b.ResetTimer()
 
 		for b.Loop() {
-			_, err := service.CreateRole(request)
+			_, err := service.CreateRole(context.Background(), request)
 			if err == nil {
 				b.Fatal("Expected AlreadyExistsError, got nil")
 			}
@@ -745,15 +750,15 @@ func BenchmarkService_CreateRole(b *testing.B) {
 		mockValidator := new(MockValidator)
 		logger := createTestLogger()
 
-		db, mock, err := sqlmock.New()
+		db, sqlMock, err := sqlmock.New()
 		assert.NoError(b, err)
 		defer func() {
 			_ = db.Close()
 		}()
 
 		sqlxDB := sqlx.NewDb(db, "postgres")
-		mock.ExpectBegin()
-		mock.ExpectRollback()
+		sqlMock.ExpectBegin()
+		sqlMock.ExpectRollback()
 
 		tx, err := sqlxDB.Beginx()
 		assert.NoError(b, err)
@@ -777,7 +782,7 @@ func BenchmarkService_CreateRole(b *testing.B) {
 		b.ResetTimer()
 
 		for b.Loop() {
-			_, err := service.CreateRole(request)
+			_, err := service.CreateRole(context.Background(), request)
 			if err != nil {
 				b.Fatalf("Unexpected error during benchmark: %v", err)
 			}
@@ -791,15 +796,15 @@ func BenchmarkService_CreateRole_Memory(b *testing.B) {
 	mockValidator := new(MockValidator)
 	logger := createTestLogger()
 
-	db, mock, err := sqlmock.New()
+	db, sqlMock, err := sqlmock.New()
 	assert.NoError(b, err)
 	defer func() {
 		_ = db.Close()
 	}()
 
 	sqlxDB := sqlx.NewDb(db, "postgres")
-	mock.ExpectBegin()
-	mock.ExpectRollback()
+	sqlMock.ExpectBegin()
+	sqlMock.ExpectRollback()
 
 	tx, err := sqlxDB.Beginx()
 	assert.NoError(b, err)
@@ -823,7 +828,7 @@ func BenchmarkService_CreateRole_Memory(b *testing.B) {
 	b.ReportAllocs()
 
 	for b.Loop() {
-		_, err := service.CreateRole(request)
+		_, err := service.CreateRole(context.Background(), request)
 		if err != nil {
 			b.Fatalf("Unexpected error during benchmark: %v", err)
 		}
@@ -837,15 +842,15 @@ func BenchmarkService_CreateRole_Parallel(b *testing.B) {
 		mockValidator := new(MockValidator)
 		logger := createTestLogger()
 
-		db, mock, err := sqlmock.New()
+		db, sqlMock, err := sqlmock.New()
 		assert.NoError(b, err)
 		defer func() {
 			_ = db.Close()
 		}()
 
 		sqlxDB := sqlx.NewDb(db, "postgres")
-		mock.ExpectBegin()
-		mock.ExpectRollback()
+		sqlMock.ExpectBegin()
+		sqlMock.ExpectRollback()
 
 		tx, err := sqlxDB.Beginx()
 		assert.NoError(b, err)
@@ -866,7 +871,7 @@ func BenchmarkService_CreateRole_Parallel(b *testing.B) {
 		mockRepo.On("SaveTx", tx, request.ToEntity()).Return(expectedRoleId, nil)
 
 		for pb.Next() {
-			_, err := service.CreateRole(request)
+			_, err := service.CreateRole(context.Background(), request)
 			if err != nil {
 				b.Fatalf("Unexpected error during parallel benchmark: %v", err)
 			}
@@ -893,15 +898,15 @@ func BenchmarkService_CreateRole_DataSizes(b *testing.B) {
 			mockValidator := new(MockValidator)
 			logger := createTestLogger()
 
-			db, mock, err := sqlmock.New()
+			db, sqlMock, err := sqlmock.New()
 			assert.NoError(b, err)
 			defer func() {
 				_ = db.Close()
 			}()
 
 			sqlxDB := sqlx.NewDb(db, "postgres")
-			mock.ExpectBegin()
-			mock.ExpectRollback()
+			sqlMock.ExpectBegin()
+			sqlMock.ExpectRollback()
 
 			tx, err := sqlxDB.Beginx()
 			assert.NoError(b, err)
@@ -929,7 +934,7 @@ func BenchmarkService_CreateRole_DataSizes(b *testing.B) {
 			b.ResetTimer()
 
 			for b.Loop() {
-				_, err := service.CreateRole(request)
+				_, err := service.CreateRole(context.Background(), request)
 				if err != nil {
 					b.Fatalf("Unexpected error during benchmark: %v", err)
 				}
