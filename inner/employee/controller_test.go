@@ -2,6 +2,7 @@ package employee
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"idm/inner/common"
@@ -21,33 +22,33 @@ type MockService struct {
 	mock.Mock
 }
 
-func (m *MockService) FindById(id int64) (Response, error) {
-	args := m.Called(id)
+func (m *MockService) FindById(ctx context.Context, id int64) (Response, error) {
+	args := m.Called(ctx, id)
 	return args.Get(0).(Response), args.Error(1)
 }
 
-func (m *MockService) CreateEmployee(request CreateRequest) (int64, error) {
-	args := m.Called(request)
+func (m *MockService) CreateEmployee(ctx context.Context, request CreateRequest) (int64, error) {
+	args := m.Called(ctx, request)
 	return args.Get(0).(int64), args.Error(1)
 }
 
-func (m *MockService) DeleteById(id int64) error {
-	args := m.Called(id)
+func (m *MockService) DeleteById(ctx context.Context, id int64) error {
+	args := m.Called(ctx, id)
 	return args.Error(0)
 }
 
-func (m *MockService) DeleteByIds(ids []int64) error {
-	args := m.Called(ids)
+func (m *MockService) DeleteByIds(ctx context.Context, ids []int64) error {
+	args := m.Called(ctx, ids)
 	return args.Error(0)
 }
 
-func (m *MockService) FindAll() ([]Response, error) {
-	args := m.Called()
+func (m *MockService) FindAll(ctx context.Context) ([]Response, error) {
+	args := m.Called(ctx)
 	return args.Get(0).([]Response), args.Error(1)
 }
 
-func (m *MockService) FindByIds(ids []int64) ([]Response, error) {
-	args := m.Called(ids)
+func (m *MockService) FindByIds(ctx context.Context, ids []int64) ([]Response, error) {
+	args := m.Called(ctx, ids)
 	return args.Get(0).([]Response), args.Error(1)
 }
 
@@ -101,7 +102,7 @@ func TestController_CreateEmployee_Success(t *testing.T) {
 	}
 
 	expectedEmployeeId := int64(123)
-	mockService.On("CreateEmployee", createRequest).Return(expectedEmployeeId, nil)
+	mockService.On("CreateEmployee", mock.Anything, createRequest).Return(expectedEmployeeId, nil)
 
 	requestBody, _ := json.Marshal(createRequest)
 	req := httptest.NewRequest("POST", "/api/v1/employees", bytes.NewReader(requestBody))
@@ -159,7 +160,7 @@ func TestController_CreateEmployee_ValidationError(t *testing.T) {
 	}
 
 	validationError := common.RequestValidationError{Message: "validation failed"}
-	mockService.On("CreateEmployee", createRequest).Return(int64(0), validationError)
+	mockService.On("CreateEmployee", mock.Anything, createRequest).Return(int64(0), validationError)
 
 	requestBody, _ := json.Marshal(createRequest)
 	req := httptest.NewRequest("POST", "/api/v1/employees", bytes.NewReader(requestBody))
@@ -191,7 +192,7 @@ func TestController_CreateEmployee_AlreadyExistsError(t *testing.T) {
 	}
 
 	alreadyExistsError := common.AlreadyExistsError{Message: "employee already exists"}
-	mockService.On("CreateEmployee", createRequest).Return(int64(0), alreadyExistsError)
+	mockService.On("CreateEmployee", mock.Anything, createRequest).Return(int64(0), alreadyExistsError)
 
 	requestBody, _ := json.Marshal(createRequest)
 	req := httptest.NewRequest("POST", "/api/v1/employees", bytes.NewReader(requestBody))
@@ -224,7 +225,7 @@ func TestController_CreateEmployee_InternalServerError(t *testing.T) {
 	}
 
 	internalError := errors.New("Internal server error")
-	mockService.On("CreateEmployee", createRequest).Return(int64(0), internalError)
+	mockService.On("CreateEmployee", mock.Anything, createRequest).Return(int64(0), internalError)
 
 	requestBody, _ := json.Marshal(createRequest)
 	req := httptest.NewRequest("POST", "/api/v1/employees", bytes.NewReader(requestBody))
@@ -256,7 +257,7 @@ func TestController_CreateEmployee_InvalidData_ReturnsValidationError(t *testing
 		RoleId:     1,
 	}
 	validationError := common.RequestValidationError{Message: "validation failed"}
-	mockService.On("CreateEmployee", createRequest).Return(int64(0), validationError)
+	mockService.On("CreateEmployee", mock.Anything, createRequest).Return(int64(0), validationError)
 
 	requestBody, _ := json.Marshal(createRequest)
 	req := httptest.NewRequest("POST", "/api/v1/employees", bytes.NewReader(requestBody))

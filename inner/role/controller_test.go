@@ -2,6 +2,7 @@ package role
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"idm/inner/common"
@@ -20,32 +21,32 @@ type MockService struct {
 	mock.Mock
 }
 
-func (m *MockService) FindById(id int64) (Response, error) {
+func (m *MockService) FindById(ctx context.Context, id int64) (Response, error) {
 	args := m.Called(id)
 	return args.Get(0).(Response), args.Error(1)
 }
 
-func (m *MockService) CreateRole(request CreateRequest) (int64, error) {
+func (m *MockService) CreateRole(ctx context.Context, request CreateRequest) (int64, error) {
 	args := m.Called(request)
 	return args.Get(0).(int64), args.Error(1)
 }
 
-func (m *MockService) DeleteById(id int64) error {
+func (m *MockService) DeleteById(ctx context.Context, id int64) error {
 	args := m.Called(id)
 	return args.Error(0)
 }
 
-func (m *MockService) DeleteByIds(ids []int64) error {
+func (m *MockService) DeleteByIds(ctx context.Context, ids []int64) error {
 	args := m.Called(ids)
 	return args.Error(0)
 }
 
-func (m *MockService) FindAll() ([]Response, error) {
+func (m *MockService) FindAll(ctx context.Context) ([]Response, error) {
 	args := m.Called()
 	return args.Get(0).([]Response), args.Error(1)
 }
 
-func (m *MockService) FindByIds(ids []int64) ([]Response, error) {
+func (m *MockService) FindByIds(ctx context.Context, ids []int64) ([]Response, error) {
 	args := m.Called(ids)
 	return args.Get(0).([]Response), args.Error(1)
 }

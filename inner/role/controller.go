@@ -1,6 +1,7 @@
 package role
 
 import (
+	"context"
 	"errors"
 	"idm/inner/common"
 	"idm/inner/web"
@@ -18,12 +19,12 @@ type Controller struct {
 
 // интерфейс сервиса role.Service
 type Svc interface {
-	FindById(id int64) (Response, error)
-	CreateRole(request CreateRequest) (int64, error)
-	FindAll() ([]Response, error)
-	FindByIds(ids []int64) ([]Response, error)
-	DeleteById(id int64) error
-	DeleteByIds(ids []int64) error
+	FindById(ctx context.Context, id int64) (Response, error)
+	CreateRole(ctx context.Context, request CreateRequest) (int64, error)
+	FindAll(ctx context.Context) ([]Response, error)
+	FindByIds(ctx context.Context, ids []int64) ([]Response, error)
+	DeleteById(ctx context.Context, id int64) error
+	DeleteByIds(ctx context.Context, ids []int64) error
 }
 
 func NewController(server *web.Server, roleService Svc, logger *common.Logger) *Controller {
@@ -68,7 +69,7 @@ func (c *Controller) CreateRole(ctx *fiber.Ctx) error {
 	c.logger.Debug("create role: received request", zap.Any("request", request))
 
 	// вызываем метод CreateRole сервиса role.Service
-	newRoleId, err := c.roleService.CreateRole(request)
+	newRoleId, err := c.roleService.CreateRole(ctx.Context(), request)
 	if err != nil {
 		return c.handleCreateRoleError(ctx, err, request)
 	}
@@ -134,7 +135,7 @@ func (c *Controller) FindRoleById(ctx *fiber.Ctx) error {
 		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Invalid role ID format")
 	}
 
-	role, err := c.roleService.FindById(id)
+	role, err := c.roleService.FindById(ctx.Context(), id)
 	if err != nil {
 		c.logger.Error("Failed to find role by ID",
 			zap.Int64("id", id),
@@ -156,7 +157,7 @@ func (c *Controller) FindAllRoles(ctx *fiber.Ctx) error {
 		zap.String("path", ctx.Path()),
 		zap.String("ip", ctx.IP()))
 
-	roles, err := c.roleService.FindAll()
+	roles, err := c.roleService.FindAll(ctx.Context())
 	if err != nil {
 		c.logger.Error("Failed to find all roles",
 			zap.Error(err),
@@ -196,7 +197,7 @@ func (c *Controller) FindRoleByIds(ctx *fiber.Ctx) error {
 		zap.Int64s("ids", request.Ids),
 		zap.String("ip", ctx.IP()))
 
-	roles, err := c.roleService.FindByIds(request.Ids)
+	roles, err := c.roleService.FindByIds(ctx.Context(), request.Ids)
 	if err != nil {
 		c.logger.Error("Failed to find roles by IDs",
 			zap.Int64s("ids", request.Ids),
@@ -233,7 +234,7 @@ func (c *Controller) DeleteRoleById(ctx *fiber.Ctx) error {
 		zap.Int64("id", id),
 		zap.String("ip", ctx.IP()))
 
-	err = c.roleService.DeleteById(id)
+	err = c.roleService.DeleteById(ctx.Context(), id)
 	if err != nil {
 		c.logger.Error("Failed to delete role",
 			zap.Int64("id", id),
@@ -276,7 +277,7 @@ func (c *Controller) DeleteRoleByIds(ctx *fiber.Ctx) error {
 		zap.Int64s("ids", request.Ids),
 		zap.String("ip", ctx.IP()))
 
-	err := c.roleService.DeleteByIds(request.Ids)
+	err := c.roleService.DeleteByIds(ctx.Context(), request.Ids)
 	if err != nil {
 		c.logger.Error("Failed to delete roles by IDs",
 			zap.Int64s("ids", request.Ids),

@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"context"
 	"testing"
 
 	"idm/inner/employee"
@@ -37,24 +38,24 @@ func TestEmployeeRepository_CRUD(t *testing.T) {
 	}
 
 	t.Run("Add", func(t *testing.T) {
-		err := repo.Add(emp)
+		err := repo.Add(context.Background(), emp)
 		assert.NoError(t, err)
 		assert.NotZero(t, emp.Id)
 
-		err = repo.Add(emp2)
+		err = repo.Add(context.Background(), emp2)
 		assert.NoError(t, err)
 		assert.NotZero(t, emp2.Id)
 	})
 
 	t.Run("FindById", func(t *testing.T) {
-		found, err := repo.FindById(emp.Id)
+		found, err := repo.FindById(context.Background(), emp.Id)
 		assert.NoError(t, err)
 		assert.Equal(t, emp.Name, found.Name)
 		assert.Equal(t, emp.Email, found.Email)
 	})
 
 	t.Run("FindAll", func(t *testing.T) {
-		employees, err := repo.FindAll()
+		employees, err := repo.FindAll(context.Background())
 		assert.NoError(t, err)
 		assert.Len(t, employees, 2)
 		assert.Equal(t, emp.Email, employees[0].Email)
@@ -62,7 +63,7 @@ func TestEmployeeRepository_CRUD(t *testing.T) {
 	})
 
 	t.Run("FindByIds", func(t *testing.T) {
-		employees, err := repo.FindByIds([]int64{emp.Id, emp2.Id})
+		employees, err := repo.FindByIds(context.Background(), []int64{emp.Id, emp2.Id})
 		assert.NoError(t, err)
 		assert.Len(t, employees, 2)
 		assert.Equal(t, emp.Id, employees[0].Id)
@@ -70,10 +71,10 @@ func TestEmployeeRepository_CRUD(t *testing.T) {
 	})
 
 	t.Run("DeleteById", func(t *testing.T) {
-		err := repo.DeleteById(emp.Id)
+		err := repo.DeleteById(context.Background(), emp.Id)
 		assert.NoError(t, err)
 
-		_, err = repo.FindById(emp.Id)
+		_, err = repo.FindById(context.Background(), emp.Id)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no rows in result set")
 	})
@@ -82,15 +83,15 @@ func TestEmployeeRepository_CRUD(t *testing.T) {
 		// Добавляем двух сотрудников
 		e1 := &employee.Entity{Name: "Alice", Email: "alice@example.com", RoleId: roleID}
 		e2 := &employee.Entity{Name: "Bob", Email: "bob@example.com", RoleId: roleID}
-		_ = repo.Add(e1)
-		_ = repo.Add(e2)
+		_ = repo.Add(context.Background(), e1)
+		_ = repo.Add(context.Background(), e2)
 
-		err := repo.DeleteByIds([]int64{e1.Id, e2.Id})
+		err := repo.DeleteByIds(context.Background(), []int64{e1.Id, e2.Id})
 		assert.NoError(t, err)
 
-		_, err = repo.FindById(e1.Id)
+		_, err = repo.FindById(context.Background(), e1.Id)
 		assert.Error(t, err)
-		_, err = repo.FindById(e2.Id)
+		_, err = repo.FindById(context.Background(), e2.Id)
 		assert.Error(t, err)
 	})
 }
@@ -100,7 +101,7 @@ func TestAddWithTransaction_Success(t *testing.T) {
 
 	clearTables()
 
-	tx, err := repo.BeginTransaction()
+	tx, err := repo.BeginTransaction(context.Background())
 	if err != nil {
 		t.Fatalf("Error beginning transaction: %v", err)
 	}
@@ -118,7 +119,7 @@ func TestAddWithTransaction_Success(t *testing.T) {
 	}
 
 	// Execute AddWithTransaction
-	err = repo.AddWithTransaction(tx, empl)
+	err = repo.AddWithTransaction(context.Background(), tx, empl)
 	if err != nil {
 		t.Fatalf("Error adding with transaction: %v", err)
 	}
@@ -144,7 +145,7 @@ func TestAddWithTransaction_Failure(t *testing.T) {
 	clearTables()
 
 	// Begin transaction
-	tx, err := repo.BeginTransaction()
+	tx, err := repo.BeginTransaction(context.Background())
 	if err != nil {
 		t.Fatalf("Error beginning transaction: %v", err)
 	}
@@ -178,7 +179,7 @@ func TestAddWithTransaction_Failure(t *testing.T) {
 		RoleId:     3,
 	}
 
-	err = repo.AddWithTransaction(tx, duplicateEmp)
+	err = repo.AddWithTransaction(context.Background(), tx, duplicateEmp)
 	if err == nil {
 		t.Fatalf("Expected error on duplicate name, but got nil")
 	}
@@ -203,7 +204,7 @@ func TestAddWithTransaction_Failure(t *testing.T) {
 
 func TestBeginTransactionEmployee(t *testing.T) {
 	repo := employee.NewEmployeeRepository(DB)
-	tx, err := repo.BeginTransaction()
+	tx, err := repo.BeginTransaction(context.Background())
 	assert.NoError(t, err)
 	assert.NotNil(t, tx)
 	err = tx.Rollback()
@@ -215,7 +216,7 @@ func TestFindByNameTx_Exists(t *testing.T) {
 
 	clearTables()
 
-	tx, err := repo.BeginTransaction()
+	tx, err := repo.BeginTransaction(context.Background())
 	if err != nil {
 		t.Fatalf("Error beginning transaction: %v", err)
 	}
@@ -238,7 +239,7 @@ func TestFindByNameTx_Exists(t *testing.T) {
 		empl.Name, empl.Email, empl.Position, empl.Department, empl.RoleId)
 	assert.NoError(t, err)
 
-	exists, err := repo.FindByNameTx(tx, "John Doe")
+	exists, err := repo.FindByNameTx(context.Background(), tx, "John Doe")
 	assert.NoError(t, err)
 	assert.True(t, exists)
 	err = tx.Commit()
@@ -248,10 +249,10 @@ func TestFindByNameTx_Exists(t *testing.T) {
 func TestFindByNameTx_NotExists(t *testing.T) {
 	clearTables()
 	repo := employee.NewEmployeeRepository(DB)
-	tx, err := repo.BeginTransaction()
+	tx, err := repo.BeginTransaction(context.Background())
 	assert.NoError(t, err)
 
-	exists, err := repo.FindByNameTx(tx, "NonExistentName")
+	exists, err := repo.FindByNameTx(context.Background(), tx, "NonExistentName")
 	assert.NoError(t, err)
 	assert.False(t, exists)
 	err = tx.Commit()
@@ -263,7 +264,7 @@ func TestSaveTx(t *testing.T) {
 
 	clearTables()
 
-	tx, err := repo.BeginTransaction()
+	tx, err := repo.BeginTransaction(context.Background())
 	if err != nil {
 		t.Fatalf("Error beginning transaction: %v", err)
 	}
@@ -280,7 +281,7 @@ func TestSaveTx(t *testing.T) {
 		RoleId:     roleID,
 	}
 
-	id, err := repo.SaveTx(tx, *employee)
+	id, err := repo.SaveTx(context.Background(), tx, *employee)
 	assert.NoError(t, err)
 	assert.NotZero(t, id)
 	err = tx.Commit()
