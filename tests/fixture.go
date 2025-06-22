@@ -6,6 +6,8 @@ import (
 	"os"
 	"testing"
 
+	"idm/inner/common"
+
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 )
@@ -19,12 +21,24 @@ const (
 )
 
 var DB *sqlx.DB
+var config common.Config
 
 func init() {
 	var err error
 	connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
 		host, port, user, password, dbname)
 	DB, err = sqlx.Connect("postgres", connStr)
+
+	dsnStr := fmt.Sprintf("%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		host, port, user, password, dbname)
+	config = common.Config{
+		DbDriverName:   "postgres",
+		Dsn:            dsnStr,
+		AppName:        "test_app",
+		AppVersion:     "1.0.0",
+		LogLevel:       "DEBUG",
+		LogDevelopMode: true,
+	}
 	if err != nil {
 		log.Fatalf("Unable to connect to database: %v\n", err)
 	}
