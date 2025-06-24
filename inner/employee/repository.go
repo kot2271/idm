@@ -46,6 +46,20 @@ func (r *Repository) FindByIds(ctx context.Context, ids []int64) ([]Entity, erro
 	return employees, err
 }
 
+func (r *Repository) FindWithPagination(ctx context.Context, limit, offset int) ([]Entity, error) {
+	var employees []Entity
+	query := `SELECT * FROM employee ORDER BY id LIMIT $1 OFFSET $2`
+	err := r.db.SelectContext(ctx, &employees, query, limit, offset)
+	return employees, err
+}
+
+func (r *Repository) CountAll(ctx context.Context) (int64, error) {
+	var count int64
+	query := `SELECT COUNT(*) FROM employee`
+	err := r.db.GetContext(ctx, &count, query)
+	return count, err
+}
+
 func (r *Repository) DeleteById(ctx context.Context, id int64) error {
 	_, err := r.db.ExecContext(ctx, "DELETE FROM employee WHERE id = $1", id)
 	return err

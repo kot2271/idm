@@ -54,3 +54,18 @@ func (req *CreateRequest) ToEntity() Entity {
 		RoleId:     req.RoleId,
 	}
 }
+
+// PageRequest структура для запроса пагинации
+type PageRequest struct {
+	PageNumber int `json:"pageNumber" validate:"min=1"`
+	PageSize   int `json:"pageSize" validate:"min=1,max=100"`
+}
+
+// PageResponse структура для ответа с пагинацией
+type PageResponse struct {
+	Data       []Response `json:"data"`
+	PageNumber int        `json:"pageNumber"`
+	PageSize   int        `json:"pageSize"`
+	TotalCount int64      `json:"totalCount"`
+	TotalPages int        `json:"totalPages"`
+}

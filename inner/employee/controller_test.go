@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"idm/inner/common"
 	"idm/inner/web"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/stretchr/testify/assert"
@@ -52,8 +54,13 @@ func (m *MockService) FindByIds(ctx context.Context, ids []int64) ([]Response, e
 	return args.Get(0).([]Response), args.Error(1)
 }
 
+func (m *MockService) FindWithPagination(ctx context.Context, request PageRequest) (PageResponse, error) {
+	args := m.Called(ctx, request)
+	return args.Get(0).(PageResponse), args.Error(1)
+}
+
 // setupTestController - вспомогательная функция для создания тестового контроллера
-func setupTestController(_ *testing.T) (*MockService, *fiber.App) {
+func setupTestController(t *testing.T) (*MockService, *fiber.App) {
 	app := fiber.New()
 
 	server := &web.Server{
@@ -77,15 +84,16 @@ func setupTestController(_ *testing.T) (*MockService, *fiber.App) {
 	controller := NewController(server, mockService, logger)
 
 	controller.RegisterRoutes()
+
 	// Очистка переменных окружения после теста
-	defer func() {
+	t.Cleanup(func() {
 		_ = os.Unsetenv("DB_DRIVER_NAME")
 		_ = os.Unsetenv("DB_DSN")
 		_ = os.Unsetenv("APP_NAME")
 		_ = os.Unsetenv("APP_VERSION")
 		_ = os.Unsetenv("LOG_LEVEL")
 		_ = os.Unsetenv("LOG_DEVELOP_MODE")
-	}()
+	})
 
 	return mockService, app
 }
@@ -272,6 +280,220 @@ func TestController_CreateEmployee_InvalidData_ReturnsValidationError(t *testing
 	assert.NoError(t, err)
 	assert.False(t, response.Success)
 	assert.Equal(t, "validation failed", response.Message)
+
+	mockService.AssertExpectations(t)
+}
+
+// тестирует валидацию параметров пагинации
+func TestFindEmployeesWithPagination_ValidationErrors(t *testing.T) {
+	tests := []struct {
+		name           string
+		pageNumber     string
+		pageSize       string
+		expectedStatus int
+		expectedError  string
+	}{
+		{
+			name:           "PageSize less than 1",
+			pageNumber:     "1",
+			pageSize:       "0",
+			expectedStatus: fiber.StatusBadRequest,
+			expectedError:  "Error when getting paginated employees",
+		},
+		{
+			name:           "PageSize negative",
+			pageNumber:     "1",
+			pageSize:       "-5",
+			expectedStatus: fiber.StatusBadRequest,
+			expectedError:  "Error when getting paginated employees",
+		},
+		{
+			name:           "PageSize greater than 100",
+			pageNumber:     "1",
+			pageSize:       "101",
+			expectedStatus: fiber.StatusBadRequest,
+			expectedError:  "Error when getting paginated employees",
+		},
+		{
+			name:           "PageNumber less than 1 (zero)",
+			pageNumber:     "0",
+			pageSize:       "10",
+			expectedStatus: fiber.StatusBadRequest,
+			expectedError:  "Error when getting paginated employees",
+		},
+		{
+			name:           "PageNumber negative",
+			pageNumber:     "-1",
+			pageSize:       "10",
+			expectedStatus: fiber.StatusBadRequest,
+			expectedError:  "Error when getting paginated employees",
+		},
+		{
+			name:           "Invalid pageNumber format",
+			pageNumber:     "abc",
+			pageSize:       "10",
+			expectedStatus: fiber.StatusBadRequest,
+			expectedError:  "Invalid pageNumber parameter",
+		},
+		{
+			name:           "Invalid pageSize format",
+			pageNumber:     "1",
+			pageSize:       "xyz",
+			expectedStatus: fiber.StatusBadRequest,
+			expectedError:  "Invalid pageSize parameter",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockService, app := setupTestController(t)
+
+			mockService.On("FindWithPagination", mock.Anything, mock.AnythingOfType("PageRequest")).
+				Return(PageResponse{}, errors.New("validation error")).Once()
+
+			url := fmt.Sprintf("/api/v1/employees/page?pageNumber=%s&pageSize=%s", tt.pageNumber, tt.pageSize)
+
+			req := httptest.NewRequest("GET", url, nil)
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := app.Test(req)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
+
+			// Проверка тела ответа
+			var responseBody common.Response[any]
+			err = json.NewDecoder(resp.Body).Decode(&responseBody)
+			require.NoError(t, err)
+
+			assert.Contains(t, responseBody.Message, tt.expectedError)
+			assert.False(t, responseBody.Success)
+		})
+	}
+}
+
+// Тестирует успешный сценарий
+func TestFindEmployeesWithPagination_Success(t *testing.T) {
+	mockService, app := setupTestController(t)
+
+	expectedResponse := PageResponse{
+		Data: []Response{
+			{Id: 4, Name: "Rick Sanchez", Email: "rick@example.com", Position: "Developer", Department: "Engineering", RoleId: 3, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+			{Id: 2, Name: "Jane Smith", Email: "jane@example.com", Position: "Developer", Department: "IT", RoleId: 3, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+			{Id: 5, Name: "John Doe", Email: "john@example.com", Position: "CTO", Department: "IT", RoleId: 2, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+		},
+		PageNumber: 1,
+		PageSize:   10,
+		TotalCount: 3,
+		TotalPages: 1,
+	}
+
+	expectedRequest := PageRequest{
+		PageNumber: 1,
+		PageSize:   10,
+	}
+
+	mockService.On("FindWithPagination", mock.Anything, expectedRequest).Return(expectedResponse, nil).Once()
+
+	req := httptest.NewRequest("GET", "/api/v1/employees/page?pageNumber=1&pageSize=10", nil)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+
+	if resp.StatusCode != fiber.StatusOK {
+		var errorBody common.Response[any]
+		err = json.NewDecoder(resp.Body).Decode(&errorBody)
+		require.NoError(t, err)
+		t.Logf("Error response: %+v", errorBody)
+	}
+
+	assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+	var responseBody common.Response[PageResponse]
+	err = json.NewDecoder(resp.Body).Decode(&responseBody)
+	require.NoError(t, err)
+
+	assert.True(t, responseBody.Success)
+	assert.NotNil(t, responseBody.Data)
+
+	data := responseBody.Data
+	assert.Equal(t, 1, data.PageNumber)
+	assert.Equal(t, 10, data.PageSize)
+	assert.Equal(t, int64(3), data.TotalCount)
+	assert.Equal(t, 1, data.TotalPages)
+
+	assert.Len(t, data.Data, 3)
+
+	mockService.AssertExpectations(t)
+}
+
+// Тестирует использование значений по умолчанию
+func TestFindEmployeesWithPagination_DefaultValues(t *testing.T) {
+	mockService, app := setupTestController(t)
+
+	expectedResponse := PageResponse{
+		Data:       []Response{},
+		PageNumber: 1,
+		PageSize:   10,
+		TotalCount: 0,
+		TotalPages: 1,
+	}
+
+	// значения по умолчанию
+	expectedRequest := PageRequest{
+		PageNumber: 1,
+		PageSize:   10,
+	}
+
+	mockService.On("FindWithPagination", mock.Anything, expectedRequest).
+		Return(expectedResponse, nil).
+		Once()
+
+	// HTTP запрос без параметров (значения по умолчанию)
+	req := httptest.NewRequest("GET", "/api/v1/employees/page", nil)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+
+	assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+	var responseBody common.Response[PageResponse]
+	err = json.NewDecoder(resp.Body).Decode(&responseBody)
+	require.NoError(t, err)
+
+	assert.True(t, responseBody.Success)
+
+	data := responseBody.Data
+	assert.Equal(t, 1, data.PageNumber)
+	assert.Equal(t, 10, data.PageSize)
+
+	mockService.AssertExpectations(t)
+}
+
+// Тестирует обработку ошибок сервиса
+func TestFindEmployeesWithPagination_ServiceError(t *testing.T) {
+	mockService, app := setupTestController(t)
+
+	mockService.On("FindWithPagination", mock.Anything, mock.Anything).
+		Return(PageResponse{}, errors.New("Invalid pagination request")).
+		Once()
+
+	req := httptest.NewRequest("GET", "/api/v1/employees/page?pageNumber=1&pageSize=10", nil)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+
+	assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+
+	var responseBody common.Response[any]
+	err = json.NewDecoder(resp.Body).Decode(&responseBody)
+	require.NoError(t, err)
+
+	assert.Contains(t, responseBody.Message, "Error when getting paginated employees")
+	assert.False(t, responseBody.Success)
 
 	mockService.AssertExpectations(t)
 }

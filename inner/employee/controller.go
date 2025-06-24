@@ -6,6 +6,7 @@ import (
 	"idm/inner/common"
 	"idm/inner/web"
 	"strconv"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"go.uber.org/zap"
@@ -25,6 +26,7 @@ type Svc interface {
 	FindAll(ctx context.Context) ([]Response, error)
 	FindByIds(ctx context.Context, ids []int64) ([]Response, error)
 	DeleteByIds(ctx context.Context, ids []int64) error
+	FindWithPagination(ctx context.Context, request PageRequest) (PageResponse, error)
 }
 
 func NewController(server *web.Server, employeeService Svc, logger *common.Logger) *Controller {
@@ -40,6 +42,7 @@ func (c *Controller) RegisterRoutes() {
 	c.logger.Info("Registering employee routes")
 	// полный маршрут получится "/api/v1/employees"
 	api := c.server.GroupApiV1
+	api.Get("/employees/page", c.FindEmployeesWithPagination)
 	api.Post("/employees", c.CreateEmployee)
 	api.Get("/employees/:id", c.GetEmployee)
 	api.Delete("/employees/:id", c.DeleteEmployee)
@@ -253,6 +256,68 @@ func (c *Controller) FindEmployeeByIds(ctx *fiber.Ctx) error {
 		zap.String("ip", ctx.IP()))
 
 	return common.OkResponse(ctx, employees)
+}
+
+func (c *Controller) FindEmployeesWithPagination(ctx *fiber.Ctx) error {
+	c.logger.Debug("Received paginated employees request",
+		zap.String("method", ctx.Method()),
+		zap.String("path", ctx.Path()),
+		zap.String("query", ctx.OriginalURL()),
+		zap.String("ip", ctx.IP()))
+
+	// Получение параметров из query string
+	pageNumberStr := ctx.Query("pageNumber", "1")
+	pageSizeStr := ctx.Query("pageSize", "10")
+
+	// Конвертация в числа
+	pageNumber, err := strconv.Atoi(pageNumberStr)
+	if err != nil {
+		c.logger.Error("Invalid pageNumber parameter",
+			zap.String("pageNumber", pageNumberStr),
+			zap.Error(err),
+			zap.String("ip", ctx.IP()))
+		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Invalid pageNumber parameter")
+	}
+
+	pageSize, err := strconv.Atoi(pageSizeStr)
+	if err != nil {
+		c.logger.Error("Invalid pageSize parameter",
+			zap.String("pageSize", pageSizeStr),
+			zap.Error(err),
+			zap.String("ip", ctx.IP()))
+		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Invalid pageSize parameter")
+	}
+
+	// запрос пагинации
+	pageRequest := PageRequest{
+		PageNumber: pageNumber,
+		PageSize:   pageSize,
+	}
+
+	// ВАЖНО: Создание нового контекса для работы с БД
+	// Это предотвращает проблему с отмененным контекстом в тестах
+	dbCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	pageResponse, err := c.employeeService.FindWithPagination(dbCtx, pageRequest)
+	if err != nil {
+		c.logger.Error("Failed to find employees with pagination",
+			zap.Error(err),
+			zap.Int("pageNumber", pageNumber),
+			zap.Int("pageSize", pageSize),
+			zap.String("ip", ctx.IP()))
+		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Error when getting paginated employees")
+	}
+
+	c.logger.Debug("Paginated employees retrieved successfully",
+		zap.Int("pageNumber", pageResponse.PageNumber),
+		zap.Int("pageSize", pageResponse.PageSize),
+		zap.Int64("totalCount", pageResponse.TotalCount),
+		zap.Int("totalPages", pageResponse.TotalPages),
+		zap.Int("dataCount", len(pageResponse.Data)),
+		zap.String("ip", ctx.IP()))
+
+	return common.OkResponse(ctx, pageResponse)
 }
 
 func (c *Controller) DeleteEmployeeByIds(ctx *fiber.Ctx) error {

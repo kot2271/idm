@@ -28,6 +28,8 @@ type Repo interface {
 	BeginTransaction(ctx context.Context) (*sqlx.Tx, error)
 	FindByNameTx(ctx context.Context, tx *sqlx.Tx, name string) (bool, error)
 	SaveTx(ctx context.Context, tx *sqlx.Tx, employee Entity) (int64, error)
+	FindWithPagination(ctx context.Context, limit, offset int) ([]Entity, error)
+	CountAll(ctx context.Context) (int64, error)
 }
 
 type Validator interface {
@@ -261,6 +263,87 @@ func (svc *Service) FindByIds(ctx context.Context, ids []int64) ([]Response, err
 		zap.Int64s("ids", ids),
 		zap.Int("found_count", len(responses)))
 	return responses, nil
+}
+
+func (svc *Service) FindWithPagination(ctx context.Context, request PageRequest) (PageResponse, error) {
+	svc.logger.Debug("Finding employees with pagination",
+		zap.Int("pageNumber", request.PageNumber),
+		zap.Int("pageSize", request.PageSize))
+
+	err := svc.validator.Validate(request)
+	if err != nil {
+		svc.logger.Error("Validation failed for pagination request",
+			zap.Int("pageNumber", request.PageNumber),
+			zap.Int("pageSize", request.PageSize),
+			zap.Error(err))
+
+		if validationErr, ok := err.(validator.ValidationErrors); ok {
+			return PageResponse{}, common.RequestValidationError{
+				Message: "Invalid pagination request",
+				Data:    validationErr.Errors,
+			}
+		}
+
+		// Если это другая ошибка валидации, возвращаем её как есть
+		return PageResponse{}, common.RequestValidationError{Message: err.Error()}
+	}
+
+	// Валидация диапазонов
+	if request.PageNumber < 1 {
+		svc.logger.Error("Invalid pageNumber", zap.Int("pageNumber", request.PageNumber))
+		// return PageResponse{}, fmt.Errorf("pageNumber must be greater than 0")
+		return PageResponse{}, common.RequestValidationError{Message: "pageNumber must be greater than 0"}
+	}
+
+	if request.PageSize < 1 || request.PageSize > 100 {
+		svc.logger.Error("Invalid pageSize", zap.Int("pageSize", request.PageSize))
+		// return PageResponse{}, fmt.Errorf("pageSize must be between 1 and 100")
+		return PageResponse{}, common.RequestValidationError{Message: "pageSize must be between 1 and 100"}
+	}
+
+	offset := (request.PageNumber - 1) * request.PageSize
+
+	entities, err := svc.repo.FindWithPagination(ctx, request.PageSize, offset)
+	if err != nil {
+		svc.logger.Error("Failed to find employees with pagination",
+			zap.Int("pageSize", request.PageSize),
+			zap.Int("offset", offset),
+			zap.Error(err))
+		return PageResponse{}, fmt.Errorf("error finding employees with pagination: %w", err)
+	}
+
+	// Общее количество записей
+	totalCount, err := svc.repo.CountAll(ctx)
+	if err != nil {
+		svc.logger.Error("Failed to count total employees", zap.Error(err))
+		return PageResponse{}, fmt.Errorf("error counting total employees: %w", err)
+	}
+
+	// Преобразование Entity в Response
+	responses := make([]Response, len(entities))
+	for i, entity := range entities {
+		responses[i] = entity.toResponse()
+	}
+
+	// Вычисление общего количества страниц
+	totalPages := int((totalCount + int64(request.PageSize) - 1) / int64(request.PageSize))
+
+	pageResponse := PageResponse{
+		Data:       responses,
+		PageNumber: request.PageNumber,
+		PageSize:   request.PageSize,
+		TotalCount: totalCount,
+		TotalPages: totalPages,
+	}
+
+	svc.logger.Debug("Found employees with pagination",
+		zap.Int("pageNumber", pageResponse.PageNumber),
+		zap.Int("pageSize", pageResponse.PageSize),
+		zap.Int64("totalCount", pageResponse.TotalCount),
+		zap.Int("totalPages", pageResponse.TotalPages),
+		zap.Int("dataCount", len(pageResponse.Data)))
+
+	return pageResponse, nil
 }
 
 func (svc *Service) DeleteById(ctx context.Context, id int64) error {

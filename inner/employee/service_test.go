@@ -131,6 +131,24 @@ func (s *StubRepo) SaveTx(ctx context.Context, tx *sqlx.Tx, employee Entity) (in
 	panic("unimplemented")
 }
 
+func (m *MockRepo) CountAll(ctx context.Context) (int64, error) {
+	args := m.Called(ctx)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *MockRepo) FindWithPagination(ctx context.Context, limit int, offset int) ([]Entity, error) {
+	args := m.Called(ctx, limit, offset)
+	return args.Get(0).([]Entity), args.Error(1)
+}
+
+func (s *StubRepo) CountAll(ctx context.Context) (int64, error) {
+	panic("unimplemented")
+}
+
+func (s *StubRepo) FindWithPagination(ctx context.Context, limit int, offset int) ([]Entity, error) {
+	panic("unimplemented")
+}
+
 // логгер для тестов
 func createTestLogger() *common.Logger {
 	cfg := common.Config{
