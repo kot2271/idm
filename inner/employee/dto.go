@@ -57,8 +57,9 @@ func (req *CreateRequest) ToEntity() Entity {
 
 // PageRequest структура для запроса пагинации
 type PageRequest struct {
-	PageNumber int `json:"pageNumber" validate:"min=1"`
-	PageSize   int `json:"pageSize" validate:"min=1,max=100"`
+	PageNumber int    `json:"pageNumber" validate:"min=1"`
+	PageSize   int    `json:"pageSize" validate:"min=1,max=100"`
+	TextFilter string `json:"textFilter"`
 }
 
 // PageResponse структура для ответа с пагинацией

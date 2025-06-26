@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
+	"unicode"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
@@ -46,11 +48,55 @@ func (r *Repository) FindByIds(ctx context.Context, ids []int64) ([]Entity, erro
 	return employees, err
 }
 
-func (r *Repository) FindWithPagination(ctx context.Context, limit, offset int) ([]Entity, error) {
+func (r *Repository) FindWithPagination(ctx context.Context, limit, offset int, textFilter string) ([]Entity, error) {
 	var employees []Entity
-	query := `SELECT * FROM employee ORDER BY id LIMIT $1 OFFSET $2`
-	err := r.db.SelectContext(ctx, &employees, query, limit, offset)
+	query := `SELECT * FROM employee WHERE 1 = 1`
+	args := []any{limit, offset}
+
+	// Добавляем фильтр по имени только если textFilter содержит не менее 3 не пробельных символов
+	if isValidTextFilter(textFilter) {
+		query += ` AND name ILIKE $3`
+		args = append(args, "%"+textFilter+"%")
+	}
+
+	query += ` ORDER BY id LIMIT $1 OFFSET $2`
+
+	err := r.db.SelectContext(ctx, &employees, query, args...)
 	return employees, err
+}
+
+func (r *Repository) CountWithFilter(ctx context.Context, textFilter string) (int64, error) {
+	var count int64
+	query := `SELECT COUNT(*) FROM employee WHERE 1 = 1`
+	args := []any{}
+
+	// Фильтр по имени только если textFilter содержит не менее 3 не пробельных символов
+	if isValidTextFilter(textFilter) {
+		query += ` AND name ILIKE $1`
+		args = append(args, "%"+textFilter+"%")
+	}
+
+	err := r.db.GetContext(ctx, &count, query, args...)
+	return count, err
+}
+
+// Вспомогательная функция для проверки валидности текстового фильтра
+func isValidTextFilter(textFilter string) bool {
+	if textFilter == "" {
+		return false
+	}
+
+	// Удаление всех пробельных символов и проверка длины
+	trimmed := strings.TrimSpace(textFilter)
+	nonWhitespaceCount := 0
+
+	for _, char := range trimmed {
+		if !unicode.IsSpace(char) {
+			nonWhitespaceCount++
+		}
+	}
+
+	return nonWhitespaceCount >= 3
 }
 
 func (r *Repository) CountAll(ctx context.Context) (int64, error) {

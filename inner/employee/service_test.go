@@ -136,16 +136,28 @@ func (m *MockRepo) CountAll(ctx context.Context) (int64, error) {
 	return args.Get(0).(int64), args.Error(1)
 }
 
-func (m *MockRepo) FindWithPagination(ctx context.Context, limit int, offset int) ([]Entity, error) {
-	args := m.Called(ctx, limit, offset)
+func (m *MockRepo) FindWithPagination(ctx context.Context, limit, offset int, textFilter string) ([]Entity, error) {
+	args := m.Called(ctx, limit, offset, textFilter)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
 	return args.Get(0).([]Entity), args.Error(1)
+}
+
+func (m *MockRepo) CountWithFilter(ctx context.Context, textFilter string) (int64, error) {
+	args := m.Called(ctx, textFilter)
+	return args.Get(0).(int64), args.Error(1)
 }
 
 func (s *StubRepo) CountAll(ctx context.Context) (int64, error) {
 	panic("unimplemented")
 }
 
-func (s *StubRepo) FindWithPagination(ctx context.Context, limit int, offset int) ([]Entity, error) {
+func (s *StubRepo) FindWithPagination(ctx context.Context, limit int, offset int, textFilter string) ([]Entity, error) {
+	panic("unimplemented")
+}
+
+func (s *StubRepo) CountWithFilter(ctx context.Context, textFilter string) (int64, error) {
 	panic("unimplemented")
 }
 

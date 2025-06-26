@@ -5,10 +5,12 @@ go 1.24.3
 require github.com/go-playground/validator/v10 v10.26.0
 
 require (
+	github.com/corpix/uarand v0.0.0-20170723150923-031be390f409 // indirect
 	github.com/gofiber/contrib/fiberzap/v2 v2.1.6 // indirect
 	github.com/gofiber/utils v1.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/schema v1.1.0 // indirect
+	github.com/icrowley/fake v0.0.0-20240710202011-f797eb4a99c0 // indirect
 	github.com/kr/pretty v0.3.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
