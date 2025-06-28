@@ -268,6 +268,7 @@ func (c *Controller) FindEmployeesWithPagination(ctx *fiber.Ctx) error {
 	// Получение параметров из query string
 	pageNumberStr := ctx.Query("pageNumber", "1")
 	pageSizeStr := ctx.Query("pageSize", "10")
+	textFilter := ctx.Query("textFilter", "")
 
 	// Конвертация в числа
 	pageNumber, err := strconv.Atoi(pageNumberStr)
@@ -288,10 +289,11 @@ func (c *Controller) FindEmployeesWithPagination(ctx *fiber.Ctx) error {
 		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Invalid pageSize parameter")
 	}
 
-	// запрос пагинации
+	// запрос пагинации с фильтром
 	pageRequest := PageRequest{
 		PageNumber: pageNumber,
 		PageSize:   pageSize,
+		TextFilter: textFilter,
 	}
 
 	// ВАЖНО: Создание нового контекса для работы с БД
@@ -305,6 +307,7 @@ func (c *Controller) FindEmployeesWithPagination(ctx *fiber.Ctx) error {
 			zap.Error(err),
 			zap.Int("pageNumber", pageNumber),
 			zap.Int("pageSize", pageSize),
+			zap.String("textFilter", textFilter),
 			zap.String("ip", ctx.IP()))
 		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Error when getting paginated employees")
 	}
@@ -312,6 +315,7 @@ func (c *Controller) FindEmployeesWithPagination(ctx *fiber.Ctx) error {
 	c.logger.Debug("Paginated employees retrieved successfully",
 		zap.Int("pageNumber", pageResponse.PageNumber),
 		zap.Int("pageSize", pageResponse.PageSize),
+		zap.String("textFilter", textFilter),
 		zap.Int64("totalCount", pageResponse.TotalCount),
 		zap.Int("totalPages", pageResponse.TotalPages),
 		zap.Int("dataCount", len(pageResponse.Data)),

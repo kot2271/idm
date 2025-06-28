@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -14,10 +15,29 @@ import (
 	val "idm/inner/validator"
 	"idm/inner/web"
 
+	"github.com/gofiber/fiber/v2"
+	"github.com/icrowley/fake"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func appLaunchKit() *fiber.App {
+	server := web.NewServer()
+	validator := val.New()
+	logger := common.NewLogger(config)
+
+	repo := employee.NewEmployeeRepository(DB)
+	service := employee.NewService(repo, validator, logger)
+	controller := employee.NewController(server, service, logger)
+
+	app := server.App
+
+	api := server.GroupApiV1
+	api.Get("/employees/page", controller.FindEmployeesWithPagination)
+
+	return app
+}
 
 func TestEmployeeRepository_CRUD(t *testing.T) {
 	repo := employee.NewEmployeeRepository(DB)
@@ -306,23 +326,7 @@ func TestSaveTx(t *testing.T) {
 func TestEmployeePaginationIntegration(t *testing.T) {
 	clearTables()
 
-	server := web.NewServer()
-
-	validator := val.New()
-
-	logger := common.NewLogger(config)
-
-	repo := employee.NewEmployeeRepository(DB)
-
-	service := employee.NewService(repo, validator, logger)
-
-	controller := employee.NewController(server, service, logger)
-
-	app := server.App
-
-	api := server.GroupApiV1
-
-	api.Get("/employees/page", controller.FindEmployeesWithPagination)
+	app := appLaunchKit()
 
 	// Сначала создаем тестовые роли
 	createTestRoles(t)
@@ -518,6 +522,400 @@ func TestEmployeePaginationIntegration(t *testing.T) {
 	})
 }
 
+func TestFindEmployeesWithPagination_NoTextFilter(t *testing.T) {
+	clearTables()
+
+	app := appLaunchKit()
+
+	// Сначала создаем тестовые роли
+	createTestRoles(t)
+
+	// Создаем 7 тестовых записей сотрудников
+	employees := createTestEmployees(t, 7)
+	require.Len(t, employees, 7, "Should create exactly 7 employees")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=5", nil)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var response common.Response[PageResponse]
+	err = json.NewDecoder(resp.Body).Decode(&response)
+	require.NoError(t, err)
+
+	assert.True(t, response.Success)
+	assert.Equal(t, 1, response.Data.PageNumber)
+	assert.Equal(t, 5, response.Data.PageSize)
+	assert.Equal(t, int64(7), response.Data.TotalCount)
+	assert.Equal(t, 2, response.Data.TotalPages)
+	assert.Len(t, response.Data.Data, 5)
+}
+
+func TestFindEmployeesWithPagination_EmptyTextFilter(t *testing.T) {
+	clearTables()
+
+	app := appLaunchKit()
+
+	createTestRoles(t)
+
+	employees := createTestEmployees(t, 7)
+	require.Len(t, employees, 7, "Should create exactly 7 employees")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=5&textFilter=", nil)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var response common.Response[PageResponse]
+	err = json.NewDecoder(resp.Body).Decode(&response)
+	require.NoError(t, err)
+
+	assert.True(t, response.Success)
+	assert.Equal(t, int64(7), response.Data.TotalCount)
+	assert.Len(t, response.Data.Data, 5)
+}
+
+func TestFindEmployeesWithPagination_WhitespaceOnlyTextFilter(t *testing.T) {
+	clearTables()
+
+	app := appLaunchKit()
+
+	createTestRoles(t)
+
+	employees := createTestEmployees(t, 7)
+	require.Len(t, employees, 7, "Should create exactly 7 employees")
+
+	testCases := []struct {
+		name       string
+		textFilter string
+	}{
+		{"Spaces only", "   "},
+		{"Tabs only", "\t\t\t"},
+		{"Newlines only", "\n\n"},
+		{"Mixed whitespace", " \t\n "},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			params := url.Values{}
+			params.Add("pageNumber", "1")
+			params.Add("pageSize", "7")
+			params.Add("textFilter", tc.textFilter)
+
+			url := fmt.Sprintf("/api/v1/employees/page?%s", params.Encode())
+			req := httptest.NewRequest(http.MethodGet, url, nil)
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := app.Test(req)
+			require.NoError(t, err)
+
+			defer func() {
+				_ = resp.Body.Close()
+			}()
+
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+			var response common.Response[PageResponse]
+			err = json.NewDecoder(resp.Body).Decode(&response)
+			require.NoError(t, err)
+
+			assert.True(t, response.Success)
+			assert.Equal(t, int64(7), response.Data.TotalCount) // Все записи, фильтр не применяется
+		})
+	}
+}
+
+func TestFindEmployeesWithPagination_TextFilterLessThan3Chars(t *testing.T) {
+	clearTables()
+
+	app := appLaunchKit()
+
+	createTestRoles(t)
+
+	employees := createTestEmployees(t, 6)
+	require.Len(t, employees, 6, "Should create exactly 6 employees")
+
+	testCases := []struct {
+		name       string
+		textFilter string
+	}{
+		{"1 character", "M"},
+		{"2 characters", "Ma"},
+		{"2 chars with spaces", " J "},
+		{"1 char with whitespace", "\tE\n"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			params := url.Values{}
+			params.Add("pageNumber", "1")
+			params.Add("pageSize", "7")
+			params.Add("textFilter", tc.textFilter)
+
+			url := fmt.Sprintf("/api/v1/employees/page?%s", params.Encode())
+			req := httptest.NewRequest(http.MethodGet, url, nil)
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := app.Test(req)
+			require.NoError(t, err)
+
+			defer func() {
+				_ = resp.Body.Close()
+			}()
+
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+			var response common.Response[PageResponse]
+			err = json.NewDecoder(resp.Body).Decode(&response)
+			require.NoError(t, err)
+
+			assert.True(t, response.Success)
+			assert.Equal(t, int64(6), response.Data.TotalCount)
+		})
+	}
+}
+
+func TestFindEmployeesWithPagination_TextFilterExactMatch(t *testing.T) {
+	clearTables()
+
+	app := appLaunchKit()
+
+	createTestRoles(t)
+
+	employees := createTestEmployees(t, 10)
+	require.Len(t, employees, 10, "Should create exactly 10 employees")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=10&textFilter=Jane", nil)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var response common.Response[PageResponse]
+	err = json.NewDecoder(resp.Body).Decode(&response)
+	require.NoError(t, err)
+
+	assert.True(t, response.Success)
+	assert.Equal(t, int64(5), response.Data.TotalCount)
+	assert.Equal(t, 1, response.Data.TotalPages)
+	assert.Equal(t, 5, len(response.Data.Data))
+
+	// Проверяем, что все найденные записи содержат "Jane"
+	for _, emp := range response.Data.Data {
+		assert.Contains(t, emp.Name, "Jane")
+	}
+}
+
+func TestFindEmployeesWithPagination_TextFilterPartialMatch(t *testing.T) {
+	clearTables()
+
+	app := appLaunchKit()
+
+	createTestRoles(t)
+
+	employees := createTestEmployees(t, 10)
+	require.Len(t, employees, 10, "Should create exactly 10 employees")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=10&textFilter=ane", nil)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var response common.Response[PageResponse]
+	err = json.NewDecoder(resp.Body).Decode(&response)
+	require.NoError(t, err)
+
+	assert.True(t, response.Success)
+
+	assert.Equal(t, int64(5), response.Data.TotalCount)
+	assert.Equal(t, 1, response.Data.TotalPages)
+	assert.Equal(t, 5, len(response.Data.Data))
+}
+
+func TestFindEmployeesWithPagination_TextFilterNoMatch(t *testing.T) {
+	clearTables()
+
+	app := appLaunchKit()
+
+	createTestRoles(t)
+
+	employees := createTestEmployees(t, 10)
+	require.Len(t, employees, 10, "Should create exactly 10 employees")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=10&textFilter=Нет", nil)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var response common.Response[PageResponse]
+	err = json.NewDecoder(resp.Body).Decode(&response)
+	require.NoError(t, err)
+
+	assert.True(t, response.Success)
+	assert.Equal(t, int64(0), response.Data.TotalCount)
+	assert.Equal(t, 0, response.Data.TotalPages)
+	assert.Len(t, response.Data.Data, 0)
+}
+
+func TestFindEmployeesWithPagination_TextFilterCaseInsensitive(t *testing.T) {
+	clearTables()
+
+	app := appLaunchKit()
+
+	createTestRoles(t)
+
+	employees := createTestEmployees(t, 20)
+	require.Len(t, employees, 20, "Should create exactly 20 employees")
+	testCases := []struct {
+		name       string
+		textFilter string
+		expected   int64
+	}{
+		{"Lowercase", "jane", 10},
+		{"Mixed case", "JaNe", 10},
+		{"Lowercase partial", "mar", 10},
+		{"Uppercase partial", "MAR", 10},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			url := fmt.Sprintf("/api/v1/employees/page?pageNumber=1&pageSize=20&textFilter=%s", tc.textFilter)
+			req := httptest.NewRequest(http.MethodGet, url, nil)
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := app.Test(req)
+			require.NoError(t, err)
+
+			defer func() {
+				_ = resp.Body.Close()
+			}()
+
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+			var response common.Response[PageResponse]
+			err = json.NewDecoder(resp.Body).Decode(&response)
+			require.NoError(t, err)
+
+			assert.True(t, response.Success)
+			assert.Equal(t, tc.expected, response.Data.TotalCount)
+		})
+	}
+}
+
+func TestFindEmployeesWithPagination_TextFilterWithPagination(t *testing.T) {
+	clearTables()
+
+	app := appLaunchKit()
+
+	createTestRoles(t)
+
+	createTestEmployees(t, 12)
+
+	// Первая страница
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=2&textFilter=Jane", nil)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var response common.Response[PageResponse]
+	err = json.NewDecoder(resp.Body).Decode(&response)
+	require.NoError(t, err)
+
+	assert.True(t, response.Success)
+	assert.Equal(t, 1, response.Data.PageNumber)
+	assert.Equal(t, 2, response.Data.PageSize)
+	assert.Equal(t, int64(6), response.Data.TotalCount)
+	assert.Equal(t, 3, response.Data.TotalPages) // 6/2 = 3 страницы
+	assert.Len(t, response.Data.Data, 2)         // На странице 2 записи
+
+	// Вторая страница
+	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/employees/page?pageNumber=2&pageSize=2&textFilter=Jane", nil)
+	req.Header.Set("Content-Type", "application/json")
+	resp2, err := app.Test(req2)
+	require.NoError(t, err)
+
+	defer func() {
+		_ = resp2.Body.Close()
+	}()
+
+	assert.Equal(t, http.StatusOK, resp2.StatusCode)
+
+	var response2 common.Response[PageResponse]
+	err = json.NewDecoder(resp2.Body).Decode(&response2)
+	require.NoError(t, err)
+
+	assert.True(t, response2.Success)
+	assert.Equal(t, 2, response2.Data.PageNumber)
+	assert.Len(t, response2.Data.Data, 2)
+}
+
+func TestFindEmployeesWithPagination_TextFilterWithSpaces(t *testing.T) {
+	clearTables()
+
+	app := appLaunchKit()
+
+	createTestRoles(t)
+
+	employees := createTestEmployees(t, 10)
+	require.Len(t, employees, 10, "Should create exactly 10 employees")
+
+	params := url.Values{}
+	params.Add("pageNumber", "1")
+	params.Add("pageSize", "10")
+	params.Add("textFilter", "  Mari  ")
+
+	url := fmt.Sprintf("/api/v1/employees/page?%s", params.Encode())
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var response common.Response[PageResponse]
+	err = json.NewDecoder(resp.Body).Decode(&response)
+	require.NoError(t, err)
+
+	assert.True(t, response.Success)
+	assert.Equal(t, int64(0), response.Data.TotalCount)
+}
+
 // создает тестовые роли для сотрудников
 func createTestRoles(t *testing.T) []int64 {
 	roles := []struct {
@@ -555,7 +953,16 @@ func createTestEmployees(t *testing.T, count int) []int64 {
 	positions := []string{"Developer", "Analyst", "Manager", "Specialist", "Coordinator"}
 
 	var employeeIDs []int64
-	for i := 1; i <= count; i++ {
+
+	half := count / 2
+
+	for i := range count {
+		var firstName string
+		if i < half {
+			firstName = "Mari"
+		} else {
+			firstName = "Jane"
+		}
 		employee := struct {
 			name       string
 			email      string
@@ -563,8 +970,9 @@ func createTestEmployees(t *testing.T, count int) []int64 {
 			department string
 			roleID     int64
 		}{
-			name:       fmt.Sprintf("Employee %d", i),
-			email:      fmt.Sprintf("employee%d@company.com", i),
+			// генерация реалистичных данных для тестовых сотрудников
+			name:       fmt.Sprintf("%s %s", firstName, fake.LastName()),
+			email:      fake.EmailAddress(),
 			position:   positions[i%len(positions)],
 			department: departments[i%len(departments)],
 			roleID:     roleIDs[i%len(roleIDs)],
