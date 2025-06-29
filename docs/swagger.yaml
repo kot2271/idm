@@ -1,0 +1,284 @@
+basePath: /api/v1
+definitions:
+  CreateRequest:
+    properties:
+      department:
+        example: IT
+        maxLength: 100
+        minLength: 2
+        type: string
+      email:
+        example: ivan.ivanov@company.com
+        type: string
+      name:
+        example: Ivan Ivanov
+        maxLength: 155
+        minLength: 2
+        type: string
+      position:
+        example: Developer
+        maxLength: 100
+        minLength: 2
+        type: string
+      role_id:
+        example: 1
+        type: integer
+    required:
+    - department
+    - email
+    - name
+    - position
+    - role_id
+    type: object
+  PageResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/Response'
+        type: array
+      pageNumber:
+        type: integer
+      pageSize:
+        type: integer
+      totalCount:
+        type: integer
+      totalPages:
+        type: integer
+    type: object
+  Response:
+    properties:
+      created_at:
+        type: string
+      department:
+        type: string
+      email:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      position:
+        type: string
+      role_id:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  Response-any:
+    properties:
+      data: {}
+      error:
+        type: string
+      success:
+        type: boolean
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: Identity Management System API
+  title: IDM API documentation
+paths:
+  /employees:
+    delete:
+      consumes:
+      - application/json
+      description: Removing employees from the system by their ID list
+      parameters:
+      - description: List of employee IDs to be deleted
+        in: body
+        name: ids
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      responses:
+        "200":
+          description: Employees deleted successfully
+        "400":
+          description: Incorrect data format in the request
+          schema:
+            $ref: '#/definitions/Response-any'
+        "500":
+          description: Error when deleting employees
+          schema:
+            $ref: '#/definitions/Response-any'
+      summary: Delete employees by ID list
+      tags:
+      - employees
+    get:
+      description: Obtain a list of all employees.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of employees
+          schema:
+            items:
+              $ref: '#/definitions/Response-any'
+            type: array
+        "500":
+          description: Error when getting the list of employees
+          schema:
+            $ref: '#/definitions/Response-any'
+      summary: Get all employees
+      tags:
+      - employees
+    post:
+      consumes:
+      - application/json
+      description: Create a new employee
+      parameters:
+      - description: create employee request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/CreateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Employee successfully created
+          schema:
+            $ref: '#/definitions/Response-any'
+        "400":
+          description: Incorrect data format in request
+          schema:
+            $ref: '#/definitions/Response-any'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/Response-any'
+      summary: Create an employee
+      tags:
+      - employees
+  /employees/{id}:
+    delete:
+      description: Removing an employee from the system by their ID
+      parameters:
+      - description: ID сотрудника
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: Employee deleted successfully
+          schema:
+            $ref: '#/definitions/Response-any'
+        "400":
+          description: Invalid employee ID
+          schema:
+            $ref: '#/definitions/Response-any'
+        "404":
+          description: Employee doesn't exists
+          schema:
+            $ref: '#/definitions/Response-any'
+        "500":
+          description: Error when deleting an employee
+          schema:
+            $ref: '#/definitions/Response-any'
+      summary: Delete employee
+      tags:
+      - employees
+    get:
+      description: Accessing data about an employee using their ID
+      parameters:
+      - description: Employee ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Employee information
+          schema:
+            $ref: '#/definitions/Response-any'
+        "400":
+          description: Invalid employee ID
+          schema:
+            $ref: '#/definitions/Response-any'
+        "404":
+          description: Employee not found
+          schema:
+            $ref: '#/definitions/Response-any'
+      summary: Get employee by ID
+      tags:
+      - employees
+  /employees/ids:
+    post:
+      consumes:
+      - application/json
+      description: Obtaining information about employees based on their ID numbers
+      parameters:
+      - description: List of employee IDs
+        in: body
+        name: ids
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of employees
+          schema:
+            items:
+              $ref: '#/definitions/Response'
+            type: array
+        "400":
+          description: Invalid request body
+          schema:
+            $ref: '#/definitions/Response-any'
+        "500":
+          description: Error searching for employees
+          schema:
+            $ref: '#/definitions/Response-any'
+      summary: Get employees by ID list
+      tags:
+      - employees
+  /employees/page:
+    get:
+      description: Obtaining a list of employees with support for page-by-page output
+      parameters:
+      - default: 1
+        description: Page number
+        in: query
+        name: pageNumber
+        type: integer
+      - default: 10
+        description: Number of items on page
+        in: query
+        name: pageSize
+        type: integer
+      - description: Text filter (name, email)
+        example: '"John"'
+        in: query
+        name: textFilter
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of employees with pagination
+          schema:
+            $ref: '#/definitions/PageResponse'
+        "400":
+          description: Error when getting paginated employees
+          schema:
+            $ref: '#/definitions/Response-any'
+      summary: Get employees with pagination
+      tags:
+      - employees
+schemes:
+- http
+- https
+securityDefinitions:
+  BasicAuth:
+    type: basic
+swagger: "2.0"

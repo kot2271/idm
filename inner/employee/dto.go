@@ -35,7 +35,7 @@ type Response struct {
 	RoleId     int64     `json:"role_id"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
-}
+} // @name Response
 
 type CreateRequest struct {
 	Name       string `json:"name" validate:"required,min=2,max=155" example:"Ivan Ivanov"`
@@ -43,7 +43,7 @@ type CreateRequest struct {
 	Position   string `json:"position" validate:"required,min=2,max=100" example:"Developer"`
 	Department string `json:"department" validate:"required,min=2,max=100" example:"IT"`
 	RoleId     int64  `json:"role_id" validate:"required" example:"1"`
-}
+} // @name CreateRequest
 
 func (req *CreateRequest) ToEntity() Entity {
 	return Entity{
@@ -60,7 +60,7 @@ type PageRequest struct {
 	PageNumber int    `json:"pageNumber" validate:"min=1"`
 	PageSize   int    `json:"pageSize" validate:"min=1,max=100"`
 	TextFilter string `json:"textFilter"`
-}
+} // @name PageRequest
 
 // PageResponse структура для ответа с пагинацией
 type PageResponse struct {
@@ -69,4 +69,4 @@ type PageResponse struct {
 	PageSize   int        `json:"pageSize"`
 	TotalCount int64      `json:"totalCount"`
 	TotalPages int        `json:"totalPages"`
-}
+} // @name PageResponse

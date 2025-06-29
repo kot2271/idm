@@ -3,9 +3,12 @@ package web
 import (
 	"time"
 
+	_ "idm/docs"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
+	"github.com/gofiber/swagger"
 	"go.uber.org/zap"
 )
 
@@ -53,6 +56,9 @@ func NewServer() *Server {
 		c.Set("X-API-Version", "v1")
 		return c.Next()
 	})
+
+	// добавляем маршрут для Swagger UI
+	app.Get("/swagger/*", swagger.HandlerDefault) // default
 
 	return &Server{
 		App:           app,

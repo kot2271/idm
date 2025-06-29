@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"idm/docs"
 	"idm/inner/common"
 	"idm/inner/database"
 	"idm/inner/employee"
@@ -18,9 +19,20 @@ import (
 	"go.uber.org/zap"
 )
 
+//	@title						IDM API documentation
+//	@description				Identity Management System API
+//	@host						localhost:8080
+//	@BasePath					/api/v1
+//	@schemes					http https
+//
+//	@securityDefinitions.basic	BasicAuth
 func main() {
 	// читаем конфиги
 	var cfg = common.GetConfig(".env")
+
+	// Переопределяем версию приложения, которая будет отображаться в swagger UI.
+	// Пакет docs и структура SwaggerInfo в нём появятся поле генерации документации
+	docs.SwaggerInfo.Version = cfg.AppVersion
 
 	// Создаем логгер
 	var logger = common.NewLogger(cfg)

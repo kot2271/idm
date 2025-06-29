@@ -6,6 +6,7 @@ import (
 	"idm/inner/common"
 	"idm/inner/web"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -53,6 +54,18 @@ func (c *Controller) RegisterRoutes() {
 }
 
 // функция-хендлер, которая будет вызываться при POST запросе по маршруту "/api/v1/employees"
+// CreateEmployee Creates a new employee
+//
+//	@Summary		Create an employee
+//	@Description	Create a new employee
+//	@Tags			employees
+//	@Accept			json
+//	@Produce		json
+//	@Param			request	body		employee.CreateRequest	true	"create employee request"
+//	@Success		200		{object}	common.Response[any]	"Employee successfully created"
+//	@Failure		400		{object}	common.Response[any]	"Incorrect data format in request"
+//	@Failure		500		{object}	common.Response[any]	"Internal server error"
+//	@Router			/employees [post]
 func (c *Controller) CreateEmployee(ctx *fiber.Ctx) error {
 	c.logger.Info("Received create employee request",
 		zap.String("method", ctx.Method()),
@@ -126,6 +139,17 @@ func (c *Controller) handleCreateEmployeeError(ctx *fiber.Ctx, err error, reques
 	}
 }
 
+// GetEmployee получает сотрудника по ID
+//
+//	@Summary		Get employee by ID
+//	@Description	Accessing data about an employee using their ID
+//	@Tags			employees
+//	@Produce		json
+//	@Param			id	path		int						true	"Employee ID"
+//	@Success		200	{object}	common.Response[any]	"Employee information"
+//	@Failure		400	{object}	common.Response[any]	"Invalid employee ID"
+//	@Failure		404	{object}	common.Response[any]	"Employee not found
+//	@Router			/employees/{id} [get]
 func (c *Controller) GetEmployee(ctx *fiber.Ctx) error {
 	c.logger.Debug("Received get employee request",
 		zap.String("method", ctx.Method()),
@@ -159,6 +183,17 @@ func (c *Controller) GetEmployee(ctx *fiber.Ctx) error {
 	return common.OkResponse(ctx, employee)
 }
 
+// DeleteEmployee удаляет сотрудника по ID
+//
+//	@Summary		Delete employee
+//	@Description	Removing an employee from the system by their ID
+//	@Tags			employees
+//	@Param			id	path		int						true	"ID сотрудника"
+//	@Success		200	{object}	common.Response[any]	"Employee deleted successfully"
+//	@Failure		400	{object}	common.Response[any]	"Invalid employee ID"
+//	@Failure		404	{object}	common.Response[any]	"Employee doesn't exists"
+//	@Failure		500	{object}	common.Response[any]	"Error when deleting an employee"
+//	@Router			/employees/{id} [delete]
 func (c *Controller) DeleteEmployee(ctx *fiber.Ctx) error {
 	c.logger.Info("Received delete employee request",
 		zap.String("method", ctx.Method()),
@@ -183,6 +218,11 @@ func (c *Controller) DeleteEmployee(ctx *fiber.Ctx) error {
 			zap.Int64("id", id),
 			zap.Error(err),
 			zap.String("ip", ctx.IP()))
+
+		if strings.Contains(err.Error(), "not found") {
+			return common.ErrResponse(ctx, fiber.StatusNotFound, "Employee doesn't exists")
+		}
+
 		return common.ErrResponse(ctx, fiber.StatusInternalServerError, "Error when deleting an employee")
 	}
 
@@ -193,6 +233,15 @@ func (c *Controller) DeleteEmployee(ctx *fiber.Ctx) error {
 	return common.OkResponse(ctx, fiber.Map{"message": "Employee deleted successfully"})
 }
 
+// FindAllEmployee получает всех сотрудников
+//
+//	@Summary		Get all employees
+//	@Description	Obtain a list of all employees.
+//	@Tags			employees
+//	@Produce		json
+//	@Success		200	{array}		common.Response[any]	"List of employees"
+//	@Failure		500	{object}	common.Response[any]	"Error when getting the list of employees"
+//	@Router			/employees [get]
 func (c *Controller) FindAllEmployee(ctx *fiber.Ctx) error {
 	c.logger.Debug("Received find all employees request",
 		zap.String("method", ctx.Method()),
@@ -215,6 +264,18 @@ func (c *Controller) FindAllEmployee(ctx *fiber.Ctx) error {
 	return common.OkResponse(ctx, employees)
 }
 
+// FindEmployeeByIds получает сотрудников по списку ID
+//
+//	@Summary		Get employees by ID list
+//	@Description	Obtaining information about employees based on their ID numbers
+//	@Tags			employees
+//	@Accept			json
+//	@Produce		json
+//	@Param			ids	body		[]int64					true	"List of employee IDs"
+//	@Success		200	{array}		Response				"List of employees"
+//	@Failure		400	{object}	common.Response[any]	"Invalid request body"
+//	@Failure		500	{object}	common.Response[any]	"Error searching for employees"
+//	@Router			/employees/ids [post]
 func (c *Controller) FindEmployeeByIds(ctx *fiber.Ctx) error {
 	c.logger.Debug("Received find employees by IDs request",
 		zap.String("method", ctx.Method()),
@@ -258,6 +319,18 @@ func (c *Controller) FindEmployeeByIds(ctx *fiber.Ctx) error {
 	return common.OkResponse(ctx, employees)
 }
 
+// FindEmployeesWithPagination получает сотрудников с пагинацией
+//
+//	@Summary		Get employees with pagination
+//	@Description	Obtaining a list of employees with support for page-by-page output
+//	@Tags			employees
+//	@Produce		json
+//	@Param			pageNumber	query		int						false	"Page number"				default(1)
+//	@Param			pageSize	query		int						false	"Number of items on page"	default(10)
+//	@Param			textFilter	query		string					false	"Text filter (name, email)"	example("John")
+//	@Success		200			{object}	PageResponse			"List of employees with pagination"
+//	@Failure		400			{object}	common.Response[any]	"Error when getting paginated employees"
+//	@Router			/employees/page [get]
 func (c *Controller) FindEmployeesWithPagination(ctx *fiber.Ctx) error {
 	c.logger.Debug("Received paginated employees request",
 		zap.String("method", ctx.Method()),
@@ -324,6 +397,17 @@ func (c *Controller) FindEmployeesWithPagination(ctx *fiber.Ctx) error {
 	return common.OkResponse(ctx, pageResponse)
 }
 
+// DeleteEmployeeByIds удаляет сотрудников по списку ID
+//
+//	@Summary		Delete employees by ID list
+//	@Description	Removing employees from the system by their ID list
+//	@Tags			employees
+//	@Accept			json
+//	@Param			ids	body	[]int64	true	"List of employee IDs to be deleted"
+//	@Success		200	"Employees deleted successfully"
+//	@Failure		400	{object}	common.Response[any]	"Incorrect data format in the request"
+//	@Failure		500	{object}	common.Response[any]	"Error when deleting employees"
+//	@Router			/employees [delete]
 func (c *Controller) DeleteEmployeeByIds(ctx *fiber.Ctx) error {
 	c.logger.Info("Received delete employees by IDs request",
 		zap.String("method", ctx.Method()),
