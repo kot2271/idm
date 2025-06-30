@@ -16,7 +16,7 @@ import (
 func Test_GetConfig_NoEnvFile(t *testing.T) {
 	// Удаляем переменные окружения для чистоты теста
 	t.Cleanup(func() {
-		cleanupEnvVars()
+		cleanupEnvVars(t)
 	})
 
 	// Путь к существующему .env файлу в корне проекта
@@ -58,7 +58,7 @@ func Test_GetConfig_NoEnvFile_WithPanicMessage(t *testing.T) {
 func Test_GetConfig_NoVarsInEnvAndDotEnv(t *testing.T) {
 	// Убедимся, что переменные окружения не заданы
 	t.Cleanup(func() {
-		cleanupEnvVars()
+		cleanupEnvVars(t)
 	})
 
 	// Создаем временную директорию
@@ -122,7 +122,7 @@ func Test_GetConfig_EnvVarsPresent_ButNotInDotEnv(t *testing.T) {
 
 	// Очистка переменных окружения после теста
 	defer func() {
-		cleanupEnvVars()
+		cleanupEnvVars(t)
 	}()
 }
 
@@ -178,7 +178,7 @@ func Test_ConfigPrioritizesEnv_OverDotEnv(t *testing.T) {
 	assert.Equal(t, "ssl.key", cfg.SslKey)
 
 	defer func() {
-		cleanupEnvVars()
+		cleanupEnvVars(t)
 	}()
 
 }
@@ -206,7 +206,7 @@ func Test_GetConfig_LoadsFromDotEnv_WhenNoConflictingEnvVars(t *testing.T) {
 
 	// Убеждаемся, что переменные окружения не установлены
 	t.Cleanup(func() {
-		cleanupEnvVars()
+		cleanupEnvVars(t)
 	})
 
 	// Переходим в временную директорию, чтобы относительный путь ".env" работал
@@ -234,7 +234,7 @@ func Test_GetConfig_LoadsFromDotEnv_WhenNoConflictingEnvVars(t *testing.T) {
 
 func Test_ConnectDb_WithInvalidConfig_ShouldError(t *testing.T) {
 	t.Cleanup(func() {
-		cleanupEnvVars()
+		cleanupEnvVars(t)
 	})
 
 	// Создаем временную директорию
@@ -270,7 +270,7 @@ func Test_ConnectDb_WithInvalidConfig_ShouldError(t *testing.T) {
 
 func Test_ConnectDb_WithValidConfig_ShouldSucceed(t *testing.T) {
 	t.Cleanup(func() {
-		cleanupEnvVars()
+		cleanupEnvVars(t)
 	})
 
 	envFilePath := filepath.Join("..", ".env")
@@ -327,12 +327,14 @@ func TestGetConfig_ValidConfig(t *testing.T) {
 func TestGetConfig_MissingSslCert_ShouldPanic(t *testing.T) {
 	// Очищаем переменные окружения перед тестом
 	t.Cleanup(func() {
-		cleanupEnvVars()
+		cleanupEnvVars(t)
 	})
 
 	// Принудительно очищаем SSL переменные окружения
-	os.Unsetenv("SSL_SERT")
-	os.Unsetenv("SSL_KEY")
+	err := os.Unsetenv("SSL_SERT")
+	require.NoError(t, err)
+	err = os.Unsetenv("SSL_KEY")
+	require.NoError(t, err)
 
 	// .env файл без SSL_SERT
 	envContent :=
@@ -358,7 +360,7 @@ func TestGetConfig_MissingSslCert_ShouldPanic(t *testing.T) {
 
 func TestGetConfig_MissingSslKey_ShouldPanic(t *testing.T) {
 	t.Cleanup(func() {
-		cleanupEnvVars()
+		cleanupEnvVars(t)
 	})
 
 	// .env файл без SSL_KEY
@@ -384,7 +386,7 @@ func TestGetConfig_MissingSslKey_ShouldPanic(t *testing.T) {
 
 func TestGetConfig_MissingBothSslFields_ShouldPanic(t *testing.T) {
 	t.Cleanup(func() {
-		cleanupEnvVars()
+		cleanupEnvVars(t)
 	})
 
 	// .env файл без SSL полей
@@ -410,7 +412,7 @@ func TestGetConfig_MissingBothSslFields_ShouldPanic(t *testing.T) {
 
 func TestGetConfig_EmptySslFields_ShouldPanic(t *testing.T) {
 	t.Cleanup(func() {
-		cleanupEnvVars()
+		cleanupEnvVars(t)
 	})
 
 	// Создаем .env файл с пустыми SSL полями
@@ -437,7 +439,7 @@ func TestGetConfig_EmptySslFields_ShouldPanic(t *testing.T) {
 
 func TestGetConfig_FromEnvironmentVariables(t *testing.T) {
 	t.Cleanup(func() {
-		cleanupEnvVars()
+		cleanupEnvVars(t)
 	})
 
 	err := os.Setenv("DB_DRIVER_NAME", "postgres")
@@ -471,7 +473,7 @@ func TestGetConfig_FromEnvironmentVariables(t *testing.T) {
 
 func TestGetConfig_MissingEnvSslCert_ShouldPanic(t *testing.T) {
 	t.Cleanup(func() {
-		cleanupEnvVars()
+		cleanupEnvVars(t)
 	})
 
 	err := os.Setenv("DB_DRIVER_NAME", "postgres")
@@ -497,7 +499,7 @@ func TestGetConfig_MissingEnvSslCert_ShouldPanic(t *testing.T) {
 
 func TestGetConfig_MissingEnvSslKey_ShouldPanic(t *testing.T) {
 	t.Cleanup(func() {
-		cleanupEnvVars()
+		cleanupEnvVars(t)
 	})
 
 	err := os.Setenv("DB_DRIVER_NAME", "postgres")
@@ -522,7 +524,7 @@ func TestGetConfig_MissingEnvSslKey_ShouldPanic(t *testing.T) {
 }
 
 // очищает все переменные окружения
-func cleanupEnvVars() {
+func cleanupEnvVars(t *testing.T) {
 	envVars := []string{
 		"DB_DRIVER_NAME",
 		"DB_DSN",
@@ -535,6 +537,7 @@ func cleanupEnvVars() {
 	}
 
 	for _, envVar := range envVars {
-		os.Unsetenv(envVar)
+		err := os.Unsetenv(envVar)
+		require.NoError(t, err)
 	}
 }
