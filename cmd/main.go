@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"idm/docs"
 	"idm/inner/common"
 	"idm/inner/database"
@@ -19,13 +20,13 @@ import (
 	"go.uber.org/zap"
 )
 
-//	@title						IDM API documentation
-//	@description				Identity Management System API
-//	@host						localhost:8080
-//	@BasePath					/api/v1
-//	@schemes					http https
+// @title						IDM API documentation
+// @description				Identity Management System API
+// @host						localhost:8080
+// @BasePath					/api/v1
+// @schemes					http https
 //
-//	@securityDefinitions.basic	BasicAuth
+// @securityDefinitions.basic	BasicAuth
 func main() {
 	// читаем конфиги
 	var cfg = common.GetConfig(".env")
@@ -55,7 +56,21 @@ func main() {
 	// запуск сервера в отдельной горутине
 	go func() {
 		logger.Info("Starting server on :8080")
-		if err := server.App.Listen(":8080"); err != nil {
+		// загружаем сертификаты
+		cer, err := tls.LoadX509KeyPair(cfg.SslSert, cfg.SslKey)
+		if err != nil {
+			logger.Panic("failed certificate loading: %s", zap.Error(err))
+		}
+		// создаём конфигурацию TLS сервера
+		tlsConfig := &tls.Config{Certificates: []tls.Certificate{cer}}
+		// создаём слушателя https соединения
+		ln, err := tls.Listen("tcp", ":8080", tlsConfig)
+		if err != nil {
+			logger.Panic("failed TLS listener creating: %s", zap.Error(err))
+		}
+		// запускаем веб-сервер с новым TLS слушателем
+		err = server.App.Listener(ln)
+		if err != nil {
 			logger.Panic("http server error: %s", zap.Error(err))
 		}
 	}()

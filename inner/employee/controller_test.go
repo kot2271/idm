@@ -77,6 +77,8 @@ func setupTestController(t *testing.T) (*MockService, *fiber.App) {
 		AppVersion:     "1.0.0",
 		LogLevel:       "DEBUG",
 		LogDevelopMode: true,
+		SslSert:        "ssl.cert",
+		SslKey:         "ssl.key",
 	}
 
 	logger := common.NewLogger(cfg)
@@ -93,6 +95,8 @@ func setupTestController(t *testing.T) (*MockService, *fiber.App) {
 		_ = os.Unsetenv("APP_VERSION")
 		_ = os.Unsetenv("LOG_LEVEL")
 		_ = os.Unsetenv("LOG_DEVELOP_MODE")
+		_ = os.Unsetenv("SSL_SERT")
+		_ = os.Unsetenv("SSL_KEY")
 	})
 
 	return mockService, app
@@ -520,6 +524,8 @@ func TestNewController(t *testing.T) {
 	APP_VERSION=1.0.0
 	LOG_LEVEL=DEBUG
 	LOG_DEVELOP_MODE=true
+	SSL_SERT=ssl.cert
+	SSL_KEY=ssl.key
 	`)
 	err := os.WriteFile(envFilePath, dotEnvContent, 0644)
 	require.NoError(t, err)
