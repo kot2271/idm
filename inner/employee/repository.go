@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"unicode"
 
@@ -107,8 +108,17 @@ func (r *Repository) CountAll(ctx context.Context) (int64, error) {
 }
 
 func (r *Repository) DeleteById(ctx context.Context, id int64) error {
-	_, err := r.db.ExecContext(ctx, "DELETE FROM employee WHERE id = $1", id)
-	return err
+	result, err := r.db.ExecContext(ctx, "DELETE FROM employee WHERE id = $1", id)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return fmt.Errorf("employee with id %d not found", id)
+	}
+
+	return nil
 }
 
 func (r *Repository) DeleteByIds(ctx context.Context, ids []int64) error {

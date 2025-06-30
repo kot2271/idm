@@ -10,7 +10,7 @@ type Response[T any] struct {
 	Success bool   `json:"success"`
 	Message string `json:"error"`
 	Data    T      `json:"data,omitempty"`
-}
+} // @name Response
 
 func ErrResponse(
 	c *fiber.Ctx,
