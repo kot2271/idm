@@ -21,6 +21,7 @@ type Config struct {
 	LogDevelopMode bool   `validate:"required"`
 	SslSert        string `validate:"required"`
 	SslKey         string `validate:"required"`
+	KeycloakJwkUrl string `validate:"required"`
 }
 
 // Получение конфигурации из .env файла или переменных окружения
@@ -40,6 +41,7 @@ func GetConfig(envFile string) Config {
 		LogDevelopMode: os.Getenv("LOG_DEVELOP_MODE") == "true",
 		SslSert:        os.Getenv("SSL_SERT"),
 		SslKey:         os.Getenv("SSL_KEY"),
+		KeycloakJwkUrl: os.Getenv("KEYCLOAK_JWK_URL"),
 	}
 	err = validator.New().Struct(cfg)
 	if err != nil {

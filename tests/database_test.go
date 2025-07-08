@@ -105,6 +105,8 @@ func Test_GetConfig_EnvVarsPresent_ButNotInDotEnv(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Setenv("SSL_KEY", "ssl.key")
 	require.NoError(t, err)
+	err = os.Setenv("KEYCLOAK_JWK_URL", "http://localhost:9990/realms/idm/protocol/openid-connect/certs")
+	require.NoError(t, err)
 
 	// Вызываем GetConfig с путём к тестовому .env
 	cfg := common.GetConfig(envFilePath)
@@ -119,6 +121,7 @@ func Test_GetConfig_EnvVarsPresent_ButNotInDotEnv(t *testing.T) {
 	assert.Equal(t, true, cfg.LogDevelopMode)
 	assert.Equal(t, "ssl.cert", cfg.SslSert)
 	assert.Equal(t, "ssl.key", cfg.SslKey)
+	assert.Equal(t, "http://localhost:9990/realms/idm/protocol/openid-connect/certs", cfg.KeycloakJwkUrl)
 
 	// Очистка переменных окружения после теста
 	defer func() {
@@ -143,6 +146,7 @@ func Test_ConfigPrioritizesEnv_OverDotEnv(t *testing.T) {
 	LOG_DEVELOP_MODE=true
 	SSL_SERT=ssl.cert
 	SSL_KEY=ssl.key
+	KEYCLOAK_JWK_URL=http://localhost:9990/realms/idm/protocol/openid-connect/certs
 	`)
 	err := os.WriteFile(envFilePath, dotEnvContent, 0644)
 	assert.NoError(t, err, "Не удалось создать тестовый .env файл")
@@ -164,6 +168,8 @@ func Test_ConfigPrioritizesEnv_OverDotEnv(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Setenv("SSL_KEY", "ssl.key")
 	require.NoError(t, err)
+	err = os.Setenv("KEYCLOAK_JWK_URL", "http://localhost:9990/realms/idm/protocol/openid-connect/certs")
+	require.NoError(t, err)
 
 	cfg := common.GetConfig(envFilePath)
 	assert.NotEmpty(t, cfg)
@@ -176,6 +182,7 @@ func Test_ConfigPrioritizesEnv_OverDotEnv(t *testing.T) {
 	assert.Equal(t, true, cfg.LogDevelopMode)
 	assert.Equal(t, "ssl.cert", cfg.SslSert)
 	assert.Equal(t, "ssl.key", cfg.SslKey)
+	assert.Equal(t, "http://localhost:9990/realms/idm/protocol/openid-connect/certs", cfg.KeycloakJwkUrl)
 
 	defer func() {
 		cleanupEnvVars(t)
@@ -200,6 +207,7 @@ func Test_GetConfig_LoadsFromDotEnv_WhenNoConflictingEnvVars(t *testing.T) {
 	LOG_DEVELOP_MODE=true
 	SSL_SERT=ssl.cert
 	SSL_KEY=ssl.key
+	KEYCLOAK_JWK_URL=http://localhost:9990/realms/idm/protocol/openid-connect/certs
 	`)
 	err := os.WriteFile(envFilePath, dotEnvContent, 0644)
 	assert.NoError(t, err, "Не удалось создать тестовый .env файл")
@@ -229,7 +237,7 @@ func Test_GetConfig_LoadsFromDotEnv_WhenNoConflictingEnvVars(t *testing.T) {
 	assert.Equal(t, "DEBUG", cfg.LogLevel)
 	assert.Equal(t, true, cfg.LogDevelopMode)
 	assert.Equal(t, "ssl.cert", cfg.SslSert)
-	assert.Equal(t, "ssl.key", cfg.SslKey)
+	assert.Equal(t, "http://localhost:9990/realms/idm/protocol/openid-connect/certs", cfg.KeycloakJwkUrl)
 }
 
 func Test_ConnectDb_WithInvalidConfig_ShouldError(t *testing.T) {
@@ -253,6 +261,7 @@ func Test_ConnectDb_WithInvalidConfig_ShouldError(t *testing.T) {
 	LOG_DEVELOP_MODE=true
 	SSL_SERT=ssl.cert
 	SSL_KEY=ssl.key
+	KEYCLOAK_JWK_URL=http://localhost:9990/realms/idm/protocol/openid-connect/certs
 	`)
 	err := os.WriteFile(envFilePath, dotEnvContent, 0644)
 	require.NoError(t, err)
@@ -306,6 +315,7 @@ func TestGetConfig_ValidConfig(t *testing.T) {
 	LOG_DEVELOP_MODE=true
 	SSL_SERT=/path/to/ssl.cert
 	SSL_KEY=/path/to/ssl.key
+	KEYCLOAK_JWK_URL=http://localhost:9990/realms/idm/protocol/openid-connect/certs
 	`
 
 	tmpDir := t.TempDir()
@@ -322,6 +332,7 @@ func TestGetConfig_ValidConfig(t *testing.T) {
 	assert.True(t, cfg.LogDevelopMode)
 	assert.Equal(t, "/path/to/ssl.cert", cfg.SslSert)
 	assert.Equal(t, "/path/to/ssl.key", cfg.SslKey)
+	assert.Equal(t, "http://localhost:9990/realms/idm/protocol/openid-connect/certs", cfg.KeycloakJwkUrl)
 }
 
 func TestGetConfig_MissingSslCert_ShouldPanic(t *testing.T) {
@@ -346,6 +357,7 @@ func TestGetConfig_MissingSslCert_ShouldPanic(t *testing.T) {
 	LOG_LEVEL=DEBUG
 	LOG_DEVELOP_MODE=true
 	SSL_KEY=/path/to/ssl.key
+	KEYCLOAK_JWK_URL=http://localhost:9990/realms/idm/protocol/openid-connect/certs
 	`
 
 	tmpDir := t.TempDir()
@@ -372,7 +384,9 @@ func TestGetConfig_MissingSslKey_ShouldPanic(t *testing.T) {
 	APP_VERSION=1.0.0
 	LOG_LEVEL=DEBUG
 	LOG_DEVELOP_MODE=true
-	SSL_SERT=/path/to/ssl.cert`
+	SSL_SERT=/path/to/ssl.cert
+	KEYCLOAK_JWK_URL=http://localhost:9990/realms/idm/protocol/openid-connect/certs
+	`
 
 	tmpDir := t.TempDir()
 	envFile := filepath.Join(tmpDir, ".env")
@@ -437,6 +451,34 @@ func TestGetConfig_EmptySslFields_ShouldPanic(t *testing.T) {
 	}, "GetConfig should panic when SSL fields are empty")
 }
 
+func TestGetConfig_MissingBothKeyCloakField_ShouldPanic(t *testing.T) {
+	t.Cleanup(func() {
+		cleanupEnvVars(t)
+	})
+
+	// .env файл без JWK_URL поля
+	envContent :=
+		`
+	DB_DRIVER_NAME=postgres
+	DB_DSN=host=localhost port=5432 user=postgres password=1234 dbname=mydb sslmode=disable
+	APP_NAME=test_app
+	APP_VERSION=1.0.0
+	LOG_LEVEL=DEBUG
+	LOG_DEVELOP_MODE=true
+	SSL_SERT=/path/to/ssl.cert
+	SSL_KEY=/path/to/ssl.key
+	`
+
+	tmpDir := t.TempDir()
+	envFile := filepath.Join(tmpDir, ".env")
+	require.NoError(t, os.WriteFile(envFile, []byte(envContent), 0644))
+
+	// Проверяем, что функция паникует при отсутствии обоих JWK_URL полей
+	assert.Panics(t, func() {
+		common.GetConfig(envFile)
+	}, "GetConfig should panic when both KEYCLOAK_JWK_URL are missing")
+}
+
 func TestGetConfig_FromEnvironmentVariables(t *testing.T) {
 	t.Cleanup(func() {
 		cleanupEnvVars(t)
@@ -458,6 +500,8 @@ func TestGetConfig_FromEnvironmentVariables(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Setenv("SSL_KEY", "/env/path/to/ssl.key")
 	require.NoError(t, err)
+	err = os.Setenv("KEYCLOAK_JWK_URL", "http://localhost:9990/realms/idm/protocol/openid-connect/certs")
+	require.NoError(t, err)
 
 	cfg := common.GetConfig("nonexistent.env")
 
@@ -469,6 +513,7 @@ func TestGetConfig_FromEnvironmentVariables(t *testing.T) {
 	assert.Equal(t, true, cfg.LogDevelopMode)
 	assert.Equal(t, "/env/path/to/ssl.cert", cfg.SslSert)
 	assert.Equal(t, "/env/path/to/ssl.key", cfg.SslKey)
+	assert.Equal(t, "http://localhost:9990/realms/idm/protocol/openid-connect/certs", cfg.KeycloakJwkUrl)
 }
 
 func TestGetConfig_MissingEnvSslCert_ShouldPanic(t *testing.T) {
@@ -489,6 +534,8 @@ func TestGetConfig_MissingEnvSslCert_ShouldPanic(t *testing.T) {
 	err = os.Setenv("LOG_DEVELOP_MODE", "true")
 	require.NoError(t, err)
 	err = os.Setenv("SSL_KEY", "/env/path/to/ssl.key")
+	require.NoError(t, err)
+	err = os.Setenv("KEYCLOAK_JWK_URL", "http://localhost:9990/realms/idm/protocol/openid-connect/certs")
 	require.NoError(t, err)
 
 	// Проверяем панику при отсутствии SSL_SERT в env
@@ -516,6 +563,36 @@ func TestGetConfig_MissingEnvSslKey_ShouldPanic(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Setenv("SSL_SERT", "/env/path/to/ssl.cert")
 	require.NoError(t, err)
+	err = os.Setenv("SSL_KEY", "/env/path/to/ssl.key")
+	require.NoError(t, err)
+
+	// Проверяем панику при отсутствии JWK_URL в env
+	assert.Panics(t, func() {
+		common.GetConfig("nonexistent.env")
+	}, "GetConfig should panic when JWK_URL env var is missing")
+}
+
+func TestGetConfig_MissingEnvJwkUrl_ShouldPanic(t *testing.T) {
+	t.Cleanup(func() {
+		cleanupEnvVars(t)
+	})
+
+	err := os.Setenv("DB_DRIVER_NAME", "postgres")
+	require.NoError(t, err)
+	err = os.Setenv("DB_DSN", "host=localhost port=5432 user=postgres password=1234 dbname=mydb sslmode=disable")
+	require.NoError(t, err)
+	err = os.Setenv("APP_NAME", "env_test_app")
+	require.NoError(t, err)
+	err = os.Setenv("APP_VERSION", "2.0.0")
+	require.NoError(t, err)
+	err = os.Setenv("LOG_LEVEL", "INFO")
+	require.NoError(t, err)
+	err = os.Setenv("LOG_DEVELOP_MODE", "true")
+	require.NoError(t, err)
+	err = os.Setenv("SSL_SERT", "/env/path/to/ssl.cert")
+	require.NoError(t, err)
+	err = os.Setenv("KEYCLOAK_JWK_URL", "http://localhost:9990/realms/idm/protocol/openid-connect/certs")
+	require.NoError(t, err)
 
 	// Проверяем панику при отсутствии SSL_KEY в env
 	assert.Panics(t, func() {
@@ -534,6 +611,7 @@ func cleanupEnvVars(t *testing.T) {
 		"LOG_DEVELOP_MODE",
 		"SSL_SERT",
 		"SSL_KEY",
+		"KEYCLOAK_JWK_URL",
 	}
 
 	for _, envVar := range envVars {

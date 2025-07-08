@@ -1,6 +1,7 @@
 package web
 
 import (
+	"idm/inner/common"
 	"time"
 
 	_ "idm/docs"
@@ -8,7 +9,6 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
-	"github.com/gofiber/swagger"
 	"go.uber.org/zap"
 )
 
@@ -16,13 +16,25 @@ import (
 type Server struct {
 	App *fiber.App
 	// группа публичного API
+	GroupApi fiber.Router
+	// группа публичного API первой версии
 	GroupApiV1 fiber.Router
 	// группа непубличного API
 	GroupInternal fiber.Router
+	// группа защищённого API (требует аутентификации)
+	GroupApiV1Protected fiber.Router
+	// группа для админов (требует роль IDM_ADMIN)
+	GroupApiV1Admin fiber.Router
+	// группа для пользователей (требует роль IDM_ADMIN или IDM_USER)
+	GroupApiV1User fiber.Router
+}
+
+type AuthMiddlewareInterface interface {
+	ProtectWithJwt() func(*fiber.Ctx) error
 }
 
 // функция-конструктор
-func NewServer() *Server {
+func NewServer(logger *common.Logger) *Server {
 
 	// создаём новый веб-вервер
 	app := fiber.New()
@@ -57,13 +69,26 @@ func NewServer() *Server {
 		return c.Next()
 	})
 
-	// добавляем маршрут для Swagger UI
-	app.Get("/swagger/*", swagger.HandlerDefault) // default
+	// Создаём защищённую группу с JWT middleware
+	groupApiV1Protected := groupApiV1.Group("/")
+	groupApiV1Protected.Use(AuthMiddleware(logger))
+
+	// Создаём группу для админов (требует роль IDM_ADMIN)
+	groupApiV1Admin := groupApiV1Protected.Group("/admin")
+	groupApiV1Admin.Use(RequireRole(IdmAdmin, logger))
+
+	// Создаём группу для пользователей (требует роль IDM_ADMIN или IDM_USER)
+	groupApiV1User := groupApiV1Protected.Group("/")
+	groupApiV1User.Use(RequireAnyRole([]string{IdmAdmin, IdmUser}, logger))
 
 	return &Server{
-		App:           app,
-		GroupApiV1:    groupApiV1,
-		GroupInternal: groupInternal,
+		App:                 app,
+		GroupApi:            groupApi,
+		GroupApiV1:          groupApiV1,
+		GroupInternal:       groupInternal,
+		GroupApiV1Protected: groupApiV1Protected,
+		GroupApiV1Admin:     groupApiV1Admin,
+		GroupApiV1User:      groupApiV1User,
 	}
 }
 

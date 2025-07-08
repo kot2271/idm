@@ -1,17 +1,42 @@
 package web
 
 import (
+	"context"
+	"idm/inner/common"
+	"idm/inner/testutils"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zaptest"
 )
 
+func SetupTestConfig() common.Config {
+	return common.Config{
+		DbDriverName:   "postgres",
+		Dsn:            "localhost port=5432 user=wronguser password=wrongpass dbname=postgres sslmode=disable",
+		AppName:        "test_app",
+		AppVersion:     "1.0.0",
+		LogLevel:       "DEBUG",
+		LogDevelopMode: true,
+		SslSert:        "ssl.cert",
+		SslKey:         "ssl.key",
+		KeycloakJwkUrl: "http://localhost:9990/realms/idm/protocol/openid-connect/certs",
+	}
+}
+
+func SetupTestLogger() *common.Logger {
+	cfg := SetupTestConfig()
+	logger := common.NewLogger(cfg)
+	return logger
+}
+
 func TestRecoverMiddleware(t *testing.T) {
-	server := NewServer()
+	logger := SetupTestLogger()
+	server := NewServer(logger)
 	server.App.Get("/panic", func(c *fiber.Ctx) error {
 		panic("test panic")
 	})
@@ -23,7 +48,8 @@ func TestRecoverMiddleware(t *testing.T) {
 }
 
 func TestRequestIDMiddleware(t *testing.T) {
-	server := NewServer()
+	logger := SetupTestLogger()
+	server := NewServer(logger)
 	server.App.Get("/id", func(c *fiber.Ctx) error {
 		return c.SendString("ok")
 	})
@@ -36,7 +62,8 @@ func TestRequestIDMiddleware(t *testing.T) {
 }
 
 func TestInternalGroupMiddleware(t *testing.T) {
-	server := NewServer()
+	logger := SetupTestLogger()
+	server := NewServer(logger)
 	server.GroupInternal.Get("/test", func(c *fiber.Ctx) error {
 		return c.SendString("internal ok")
 	})
@@ -49,12 +76,28 @@ func TestInternalGroupMiddleware(t *testing.T) {
 }
 
 func TestApiV1GroupMiddleware(t *testing.T) {
-	server := NewServer()
+	logger := SetupTestLogger()
+	server := NewServer(logger)
 	server.GroupApiV1.Get("/test", func(c *fiber.Ctx) error {
 		return c.SendString("api v1 ok")
 	})
 
 	req := httptest.NewRequest("GET", "/api/v1/test", nil)
+	req.Header.Set("Content-Type", "application/json")
+	ctx := context.Background()
+	cfg, _ := testutils.LoadTestConfig("..", "")
+	accessToken, err := testutils.GetKeycloakToken(
+		ctx,
+		cfg.Keycloak.Realm,
+		cfg.Keycloak.ClientID,
+		cfg.Keycloak.ClientSecret,
+		cfg.Keycloak.Username2,
+		cfg.Keycloak.Password,
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, accessToken)
+
+	req.Header.Set("Authorization", "Bearer "+accessToken)
 	resp, err := server.App.Test(req)
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)

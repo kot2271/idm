@@ -12,6 +12,7 @@ import (
 
 	"idm/inner/common"
 	"idm/inner/employee"
+	"idm/inner/testutils"
 	val "idm/inner/validator"
 	"idm/inner/web"
 
@@ -23,9 +24,9 @@ import (
 )
 
 func appLaunchKit() *fiber.App {
-	server := web.NewServer()
-	validator := val.New()
 	logger := common.NewLogger(config)
+	server := web.NewServer(logger)
+	validator := val.New()
 
 	repo := employee.NewEmployeeRepository(DB)
 	service := employee.NewService(repo, validator, logger)
@@ -37,6 +38,31 @@ func appLaunchKit() *fiber.App {
 	api.Get("/employees/page", controller.FindEmployeesWithPagination)
 
 	return app
+}
+
+// создаёт GET-запрос с Bearer токеном
+func CreateAuthenticatedRequest(t *testing.T, method, url string) *http.Request {
+	req := httptest.NewRequest(method, url, nil)
+	req.Header.Set("Content-Type", "application/json")
+
+	cfg, err := testutils.LoadTestConfig("..", "inner")
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	accessToken, err := testutils.GetKeycloakToken(
+		ctx,
+		cfg.Keycloak.Realm,
+		cfg.Keycloak.ClientID,
+		cfg.Keycloak.ClientSecret,
+		cfg.Keycloak.Username2,
+		cfg.Keycloak.Password,
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, accessToken)
+
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	return req
 }
 
 func TestEmployeeRepository_CRUD(t *testing.T) {
@@ -337,8 +363,7 @@ func TestEmployeePaginationIntegration(t *testing.T) {
 
 	t.Run("First page with 3 records", func(t *testing.T) {
 		// Запрашиваем первую страницу с 3 записями
-		req := httptest.NewRequest("GET", "/api/v1/employees/page?pageNumber=1&pageSize=3", nil)
-		req.Header.Set("Content-Type", "application/json")
+		req := CreateAuthenticatedRequest(t, fiber.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=3")
 
 		resp, err := app.Test(req)
 		require.NoError(t, err)
@@ -360,8 +385,7 @@ func TestEmployeePaginationIntegration(t *testing.T) {
 
 	t.Run("Second page with 3 records", func(t *testing.T) {
 		// Запрашиваем вторую страницу с 3 записями
-		req := httptest.NewRequest("GET", "/api/v1/employees/page?pageNumber=2&pageSize=3", nil)
-		req.Header.Set("Content-Type", "application/json")
+		req := CreateAuthenticatedRequest(t, fiber.MethodGet, "/api/v1/employees/page?pageNumber=2&pageSize=3")
 
 		resp, err := app.Test(req)
 		require.NoError(t, err)
@@ -382,8 +406,7 @@ func TestEmployeePaginationIntegration(t *testing.T) {
 
 	t.Run("Third page with 3 records", func(t *testing.T) {
 		// Запрашиваем третью страницу с 3 записями
-		req := httptest.NewRequest("GET", "/api/v1/employees/page?pageNumber=3&pageSize=3", nil)
-		req.Header.Set("Content-Type", "application/json")
+		req := CreateAuthenticatedRequest(t, fiber.MethodGet, "/api/v1/employees/page?pageNumber=3&pageSize=3")
 
 		resp, err := app.Test(req)
 		require.NoError(t, err)
@@ -404,8 +427,7 @@ func TestEmployeePaginationIntegration(t *testing.T) {
 
 	t.Run("Invalid web request", func(t *testing.T) {
 		// Направляем невалидный запрос с некорректными параметрами
-		req := httptest.NewRequest("GET", "/api/v1/employees/page?pageNumber=invalid&pageSize=abc", nil)
-		req.Header.Set("Content-Type", "application/json")
+		req := CreateAuthenticatedRequest(t, fiber.MethodGet, "/api/v1/employees/page?pageNumber=invalid&pageSize=abc")
 
 		resp, err := app.Test(req)
 		require.NoError(t, err)
@@ -422,8 +444,7 @@ func TestEmployeePaginationIntegration(t *testing.T) {
 
 	t.Run("Request without pageNumber parameter", func(t *testing.T) {
 		// Ожидаемое поведение: использование значения по умолчанию (1)
-		req := httptest.NewRequest("GET", "/api/v1/employees/page?pageSize=3", nil)
-		req.Header.Set("Content-Type", "application/json")
+		req := CreateAuthenticatedRequest(t, fiber.MethodGet, "/api/v1/employees/page?pageSize=3")
 
 		resp, err := app.Test(req)
 		require.NoError(t, err)
@@ -446,8 +467,7 @@ func TestEmployeePaginationIntegration(t *testing.T) {
 
 	t.Run("Request without pageSize parameter", func(t *testing.T) {
 		// Ожидаемое поведение: использование значения по умолчанию (10)
-		req := httptest.NewRequest("GET", "/api/v1/employees/page?pageNumber=1", nil)
-		req.Header.Set("Content-Type", "application/json")
+		req := CreateAuthenticatedRequest(t, fiber.MethodGet, "/api/v1/employees/page?pageNumber=1")
 
 		resp, err := app.Test(req)
 		require.NoError(t, err)
@@ -470,8 +490,7 @@ func TestEmployeePaginationIntegration(t *testing.T) {
 
 	t.Run("Edge case: pageNumber=0", func(t *testing.T) {
 		// Проверяем обработку граничного случая с pageNumber=0
-		req := httptest.NewRequest("GET", "/api/v1/employees/page?pageNumber=0&pageSize=3", nil)
-		req.Header.Set("Content-Type", "application/json")
+		req := CreateAuthenticatedRequest(t, fiber.MethodGet, "/api/v1/employees/page?pageNumber=0&pageSize=3")
 
 		resp, err := app.Test(req)
 		require.NoError(t, err)
@@ -488,8 +507,7 @@ func TestEmployeePaginationIntegration(t *testing.T) {
 
 	t.Run("Edge case: pageSize=0", func(t *testing.T) {
 		// Проверяем обработку граничного случая с pageSize=0
-		req := httptest.NewRequest("GET", "/api/v1/employees/page?pageNumber=1&pageSize=0", nil)
-		req.Header.Set("Content-Type", "application/json")
+		req := CreateAuthenticatedRequest(t, fiber.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=0")
 
 		resp, err := app.Test(req)
 		require.NoError(t, err)
@@ -506,8 +524,7 @@ func TestEmployeePaginationIntegration(t *testing.T) {
 
 	t.Run("Edge case: pageSize > 100", func(t *testing.T) {
 		// Проверяем обработку граничного случая с pageSize > 100
-		req := httptest.NewRequest("GET", "/api/v1/employees/page?pageNumber=1&pageSize=101", nil)
-		req.Header.Set("Content-Type", "application/json")
+		req := CreateAuthenticatedRequest(t, fiber.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=101")
 		resp, err := app.Test(req)
 		require.NoError(t, err)
 
@@ -534,8 +551,7 @@ func TestFindEmployeesWithPagination_NoTextFilter(t *testing.T) {
 	employees := createTestEmployees(t, 7)
 	require.Len(t, employees, 7, "Should create exactly 7 employees")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=5", nil)
-	req.Header.Set("Content-Type", "application/json")
+	req := CreateAuthenticatedRequest(t, fiber.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=5")
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 
@@ -567,8 +583,7 @@ func TestFindEmployeesWithPagination_EmptyTextFilter(t *testing.T) {
 	employees := createTestEmployees(t, 7)
 	require.Len(t, employees, 7, "Should create exactly 7 employees")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=5&textFilter=", nil)
-	req.Header.Set("Content-Type", "application/json")
+	req := CreateAuthenticatedRequest(t, fiber.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=5&textFilter=")
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 
@@ -615,8 +630,7 @@ func TestFindEmployeesWithPagination_WhitespaceOnlyTextFilter(t *testing.T) {
 			params.Add("textFilter", tc.textFilter)
 
 			url := fmt.Sprintf("/api/v1/employees/page?%s", params.Encode())
-			req := httptest.NewRequest(http.MethodGet, url, nil)
-			req.Header.Set("Content-Type", "application/json")
+			req := CreateAuthenticatedRequest(t, fiber.MethodGet, url)
 			resp, err := app.Test(req)
 			require.NoError(t, err)
 
@@ -664,8 +678,7 @@ func TestFindEmployeesWithPagination_TextFilterLessThan3Chars(t *testing.T) {
 			params.Add("textFilter", tc.textFilter)
 
 			url := fmt.Sprintf("/api/v1/employees/page?%s", params.Encode())
-			req := httptest.NewRequest(http.MethodGet, url, nil)
-			req.Header.Set("Content-Type", "application/json")
+			req := CreateAuthenticatedRequest(t, fiber.MethodGet, url)
 			resp, err := app.Test(req)
 			require.NoError(t, err)
 
@@ -695,8 +708,7 @@ func TestFindEmployeesWithPagination_TextFilterExactMatch(t *testing.T) {
 	employees := createTestEmployees(t, 10)
 	require.Len(t, employees, 10, "Should create exactly 10 employees")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=10&textFilter=Jane", nil)
-	req.Header.Set("Content-Type", "application/json")
+	req := CreateAuthenticatedRequest(t, fiber.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=10&textFilter=Jane")
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 
@@ -731,8 +743,7 @@ func TestFindEmployeesWithPagination_TextFilterPartialMatch(t *testing.T) {
 	employees := createTestEmployees(t, 10)
 	require.Len(t, employees, 10, "Should create exactly 10 employees")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=10&textFilter=ane", nil)
-	req.Header.Set("Content-Type", "application/json")
+	req := CreateAuthenticatedRequest(t, fiber.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=10&textFilter=ane")
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 
@@ -763,8 +774,7 @@ func TestFindEmployeesWithPagination_TextFilterNoMatch(t *testing.T) {
 	employees := createTestEmployees(t, 10)
 	require.Len(t, employees, 10, "Should create exactly 10 employees")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=10&textFilter=Нет", nil)
-	req.Header.Set("Content-Type", "application/json")
+	req := CreateAuthenticatedRequest(t, fiber.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=10&textFilter=Нет")
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 
@@ -807,8 +817,7 @@ func TestFindEmployeesWithPagination_TextFilterCaseInsensitive(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			url := fmt.Sprintf("/api/v1/employees/page?pageNumber=1&pageSize=20&textFilter=%s", tc.textFilter)
-			req := httptest.NewRequest(http.MethodGet, url, nil)
-			req.Header.Set("Content-Type", "application/json")
+			req := CreateAuthenticatedRequest(t, fiber.MethodGet, url)
 			resp, err := app.Test(req)
 			require.NoError(t, err)
 
@@ -838,8 +847,7 @@ func TestFindEmployeesWithPagination_TextFilterWithPagination(t *testing.T) {
 	createTestEmployees(t, 12)
 
 	// Первая страница
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=2&textFilter=Jane", nil)
-	req.Header.Set("Content-Type", "application/json")
+	req := CreateAuthenticatedRequest(t, fiber.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=2&textFilter=Jane")
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 
@@ -861,8 +869,7 @@ func TestFindEmployeesWithPagination_TextFilterWithPagination(t *testing.T) {
 	assert.Len(t, response.Data.Data, 2)         // На странице 2 записи
 
 	// Вторая страница
-	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/employees/page?pageNumber=2&pageSize=2&textFilter=Jane", nil)
-	req.Header.Set("Content-Type", "application/json")
+	req2 := CreateAuthenticatedRequest(t, fiber.MethodGet, "/api/v1/employees/page?pageNumber=2&pageSize=2&textFilter=Jane")
 	resp2, err := app.Test(req2)
 	require.NoError(t, err)
 
@@ -897,8 +904,7 @@ func TestFindEmployeesWithPagination_TextFilterWithSpaces(t *testing.T) {
 	params.Add("textFilter", "  Mari  ")
 
 	url := fmt.Sprintf("/api/v1/employees/page?%s", params.Encode())
-	req := httptest.NewRequest(http.MethodGet, url, nil)
-	req.Header.Set("Content-Type", "application/json")
+	req := CreateAuthenticatedRequest(t, fiber.MethodGet, url)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 

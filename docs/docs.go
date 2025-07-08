@@ -17,6 +17,13 @@ const docTemplate = `{
     "paths": {
         "/employees": {
             "get": {
+                "security": [
+                    {
+                        "OAuth2AccessCode": [
+                            "read"
+                        ]
+                    }
+                ],
                 "description": "Obtain a list of all employees.",
                 "produces": [
                     "application/json"
@@ -44,6 +51,13 @@ const docTemplate = `{
                 }
             },
             "post": {
+                "security": [
+                    {
+                        "OAuth2AccessCode": [
+                            "write"
+                        ]
+                    }
+                ],
                 "description": "Create a new employee",
                 "consumes": [
                     "application/json"
@@ -88,6 +102,13 @@ const docTemplate = `{
                 }
             },
             "delete": {
+                "security": [
+                    {
+                        "OAuth2AccessCode": [
+                            "write"
+                        ]
+                    }
+                ],
                 "description": "Removing employees from the system by their ID list",
                 "consumes": [
                     "application/json"
@@ -131,6 +152,13 @@ const docTemplate = `{
         },
         "/employees/ids": {
             "post": {
+                "security": [
+                    {
+                        "OAuth2AccessCode": [
+                            "read"
+                        ]
+                    }
+                ],
                 "description": "Obtaining information about employees based on their ID numbers",
                 "consumes": [
                     "application/json"
@@ -183,6 +211,13 @@ const docTemplate = `{
         },
         "/employees/page": {
             "get": {
+                "security": [
+                    {
+                        "OAuth2AccessCode": [
+                            "read"
+                        ]
+                    }
+                ],
                 "description": "Obtaining a list of employees with support for page-by-page output",
                 "produces": [
                     "application/json"
@@ -232,6 +267,13 @@ const docTemplate = `{
         },
         "/employees/{id}": {
             "get": {
+                "security": [
+                    {
+                        "OAuth2AccessCode": [
+                            "read"
+                        ]
+                    }
+                ],
                 "description": "Accessing data about an employee using their ID",
                 "produces": [
                     "application/json"
@@ -271,6 +313,13 @@ const docTemplate = `{
                 }
             },
             "delete": {
+                "security": [
+                    {
+                        "OAuth2AccessCode": [
+                            "write"
+                        ]
+                    }
+                ],
                 "description": "Removing an employee from the system by their ID",
                 "tags": [
                     "employees"
@@ -419,8 +468,42 @@ const docTemplate = `{
         }
     },
     "securityDefinitions": {
-        "BasicAuth": {
-            "type": "basic"
+        "OAuth2AccessCode": {
+            "type": "oauth2",
+            "flow": "accessCode",
+            "authorizationUrl": "http://localhost:9990/realms/idm/protocol/openid-connect/auth",
+            "tokenUrl": "http://localhost:9990/realms/idm/protocol/openid-connect/token",
+            "scopes": {
+                "read": "Read access",
+                "write": "Write access"
+            }
+        },
+        "OAuth2Application": {
+            "type": "oauth2",
+            "flow": "application",
+            "tokenUrl": "http://localhost:9990/realms/idm/protocol/openid-connect/token",
+            "scopes": {
+                "read": "Read access",
+                "write": "Write access"
+            }
+        },
+        "OAuth2Implicit": {
+            "type": "oauth2",
+            "flow": "implicit",
+            "authorizationUrl": "http://localhost:9990/realms/idm/protocol/openid-connect/auth",
+            "scopes": {
+                "read": "Read access",
+                "write": "Write access"
+            }
+        },
+        "OAuth2Password": {
+            "type": "oauth2",
+            "flow": "password",
+            "tokenUrl": "http://localhost:9990/realms/idm/protocol/openid-connect/token",
+            "scopes": {
+                "read": "Read access",
+                "write": "Write access"
+            }
         }
     }
 }`

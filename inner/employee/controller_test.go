@@ -5,12 +5,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
+
 	"fmt"
 	"idm/inner/common"
+	"idm/inner/testutils"
 	"idm/inner/web"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+
 	"testing"
 	"time"
 
@@ -59,16 +65,8 @@ func (m *MockService) FindWithPagination(ctx context.Context, request PageReques
 	return args.Get(0).(PageResponse), args.Error(1)
 }
 
-// setupTestController - вспомогательная функция для создания тестового контроллера
-func setupTestController(t *testing.T) (*MockService, *fiber.App) {
-	app := fiber.New()
-
-	server := &web.Server{
-		App:        app,
-		GroupApiV1: app.Group("/api/v1"),
-	}
-
-	mockService := &MockService{}
+// setupTestServer создает тестовый сервер с настроенной аутентификацией
+func setupTestServer(t *testing.T) (*MockService, *fiber.App) {
 
 	cfg := common.Config{
 		DbDriverName:   "postgres",
@@ -79,31 +77,648 @@ func setupTestController(t *testing.T) (*MockService, *fiber.App) {
 		LogDevelopMode: true,
 		SslSert:        "ssl.cert",
 		SslKey:         "ssl.key",
+		KeycloakJwkUrl: "http://localhost:9990/realms/idm/protocol/openid-connect/certs",
 	}
 
 	logger := common.NewLogger(cfg)
 
-	controller := NewController(server, mockService, logger)
+	server := web.NewServer(logger)
 
+	mockService := &MockService{}
+	controller := NewController(server, mockService, logger)
 	controller.RegisterRoutes()
 
-	// Очистка переменных окружения после теста
+	// Очистка после теста
 	t.Cleanup(func() {
-		_ = os.Unsetenv("DB_DRIVER_NAME")
-		_ = os.Unsetenv("DB_DSN")
-		_ = os.Unsetenv("APP_NAME")
-		_ = os.Unsetenv("APP_VERSION")
-		_ = os.Unsetenv("LOG_LEVEL")
-		_ = os.Unsetenv("LOG_DEVELOP_MODE")
-		_ = os.Unsetenv("SSL_SERT")
-		_ = os.Unsetenv("SSL_KEY")
+		os.Clearenv()
 	})
 
-	return mockService, app
+	return mockService, server.App
+}
+
+// HTTP запрос с валидным JWT токеном
+func createAuthenticatedRequest(t *testing.T, method, url string, body io.Reader, userRoles []string) *http.Request {
+	req := httptest.NewRequest(method, url, body)
+	req.Header.Set("Content-Type", "application/json")
+
+	if userRoles == nil {
+		return req // без токена
+	}
+
+	cfg, _ := testutils.LoadTestConfig("..", "")
+
+	// Мапа для соответствия ролей и пользователей
+	roleToUserMap := map[string]struct {
+		Username string
+		Password string
+	}{
+		web.IdmAdmin: {Username: cfg.Keycloak.Username1, Password: cfg.Keycloak.Password},
+		web.IdmUser:  {Username: cfg.Keycloak.Username2, Password: cfg.Keycloak.Password},
+	}
+
+	// Дефолтные данные
+	username := "testuser"
+	password := "password"
+
+	// Выбираем пользователя по первой роли
+	if len(userRoles) > 0 {
+		if creds, ok := roleToUserMap[userRoles[0]]; ok {
+			username = creds.Username
+			password = creds.Password
+		}
+
+		// Получаем реальный токен из Keycloak
+		ctx := context.Background()
+		accessToken, err := testutils.GetKeycloakToken(
+			ctx,
+			cfg.Keycloak.Realm,        // realm
+			cfg.Keycloak.ClientID,     // client ID
+			cfg.Keycloak.ClientSecret, // client secret (из Keycloak)
+			username,                  // username
+			password,                  // password
+		)
+		require.NoError(t, err)
+		require.NotEmpty(t, accessToken)
+
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+	}
+	return req
+}
+
+// создаёт запрос без заголовка Authorization
+func createUnauthenticatedRequest(method, url string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, url, body)
+	req.Header.Set("Content-Type", "application/json")
+	return req
+}
+
+// создаёт запрос с испорченным токеном
+func createMalformedTokenRequest(method, url string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, url, body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer invalid_token_here_123")
+	return req
+}
+
+// создаёт запрос с просроченным токеном
+func createExpiredTokenRequest(method, url string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, url, body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+testutils.GenerateExpiredToken())
+	return req
+}
+
+// запрос с токеном, у которого нет нужной роли
+func createForbiddenTokenRequest(method, url string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, url, body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+testutils.GenerateRolelessToken())
+	return req
+}
+
+func TestController_CreateEmployee(t *testing.T) {
+	tests := []struct {
+		name         string
+		userRoles    []string
+		requestBody  CreateRequest
+		mockSetup    func(*MockService)
+		expectedCode int
+		expectedData any
+		expectError  bool
+	}{
+		{
+			name:        "successful creation with admin role",
+			userRoles:   []string{web.IdmAdmin},
+			requestBody: CreateRequest{Name: "John Doe", Email: "john@example.com", Position: "Developer", Department: "IT", RoleId: 1},
+			mockSetup: func(m *MockService) {
+				m.On("CreateEmployee", mock.Anything, mock.AnythingOfType("CreateRequest")).
+					Return(int64(123), nil)
+			},
+			expectedCode: http.StatusOK,
+			expectedData: float64(123),
+			expectError:  false,
+		},
+		{
+			name:        "forbidden access with user role",
+			userRoles:   []string{web.IdmUser},
+			requestBody: CreateRequest{Name: "John Doe", Email: "john@example.com", Position: "Developer", Department: "IT", RoleId: 2},
+			mockSetup: func(m *MockService) {
+				// Сервис не должен вызываться при отсутствии прав
+			},
+			expectedCode: http.StatusForbidden,
+			expectError:  true,
+		},
+		{
+			name:        "validation error",
+			userRoles:   []string{web.IdmAdmin},
+			requestBody: CreateRequest{Name: "", Email: "john@example.com", Position: "Developer", Department: "IT", RoleId: 2}, // пустое имя
+			mockSetup: func(m *MockService) {
+				validationErr := common.RequestValidationError{
+					Message: "Name is required",
+					Data:    map[string]any{"name": "required"},
+				}
+				m.On("CreateEmployee", mock.Anything, mock.AnythingOfType("CreateRequest")).
+					Return(int64(0), validationErr)
+			},
+			expectedCode: http.StatusBadRequest,
+			expectError:  true,
+		},
+		{
+			name:        "already exists error",
+			userRoles:   []string{web.IdmAdmin},
+			requestBody: CreateRequest{Name: "John Doe", Email: "john@example.com", Position: "Developer", Department: "IT", RoleId: 2},
+			mockSetup: func(m *MockService) {
+				existsErr := common.AlreadyExistsError{Message: "Employee already exists"}
+				m.On("CreateEmployee", mock.Anything, mock.AnythingOfType("CreateRequest")).
+					Return(int64(0), existsErr)
+			},
+			expectedCode: http.StatusConflict,
+			expectError:  true,
+		},
+		{
+			name:        "internal server error",
+			userRoles:   []string{web.IdmAdmin},
+			requestBody: CreateRequest{Name: "John Doe", Email: "john@example.com", Position: "Developer", Department: "IT", RoleId: 2},
+			mockSetup: func(m *MockService) {
+				m.On("CreateEmployee", mock.Anything, mock.AnythingOfType("CreateRequest")).
+					Return(int64(0), errors.New("database connection error"))
+			},
+			expectedCode: http.StatusInternalServerError,
+			expectError:  true,
+		},
+		{
+			name:        "unauthorized missing token",
+			userRoles:   nil,
+			requestBody: CreateRequest{Name: "John Doe", Email: "john@example.com", Position: "Developer", Department: "IT", RoleId: 1},
+			mockSetup: func(m *MockService) {
+				// Сервис не должен вызываться
+			},
+			expectedCode: http.StatusUnauthorized,
+			expectError:  true,
+		},
+		{
+			name:        "unauthorized malformed token",
+			userRoles:   nil,
+			requestBody: CreateRequest{Name: "John Doe", Email: "john@example.com", Position: "Developer", Department: "IT", RoleId: 1},
+			mockSetup: func(m *MockService) {
+				// Сервис не должен вызываться
+			},
+			expectedCode: http.StatusUnauthorized,
+			expectError:  true,
+		},
+		{
+			name:        "unauthorized malformed token",
+			userRoles:   []string{web.IdmAdmin},
+			requestBody: CreateRequest{Name: "John Doe", Email: "john@example.com", Position: "Developer", Department: "IT", RoleId: 1},
+			mockSetup: func(m *MockService) {
+				// Сервис не должен вызываться
+			},
+			expectedCode: http.StatusUnauthorized,
+			expectError:  true,
+		},
+		{
+			name:        "unauthorized expired token",
+			userRoles:   []string{web.IdmAdmin},
+			requestBody: CreateRequest{Name: "John Doe", Email: "john@example.com", Position: "Developer", Department: "IT", RoleId: 1},
+			mockSetup: func(m *MockService) {
+				// Сервис не должен вызываться
+			},
+			expectedCode: http.StatusUnauthorized,
+			expectError:  true,
+		},
+		{
+			name:        "forbidden access with user role",
+			userRoles:   []string{web.IdmUser}, // нет прав на /admin
+			requestBody: CreateRequest{Name: "John Doe", Email: "john@example.com", Position: "Developer", Department: "IT", RoleId: 2},
+			mockSetup: func(m *MockService) {
+				// Сервис не должен вызываться
+			},
+			expectedCode: http.StatusForbidden,
+			expectError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockService, app := setupTestServer(t)
+
+			if tt.mockSetup != nil {
+				tt.mockSetup(mockService)
+			}
+
+			requestBody, _ := json.Marshal(tt.requestBody)
+
+			var req *http.Request
+			switch {
+			case tt.userRoles == nil:
+				req = createUnauthenticatedRequest(
+					fiber.MethodPost,
+					"/api/v1/admin/employees",
+					bytes.NewReader(requestBody),
+				)
+
+			case len(tt.userRoles) > 0 && tt.name == "unauthorized malformed token":
+				// токен невалидный
+				req = createMalformedTokenRequest(
+					fiber.MethodPost,
+					"/api/v1/admin/employees",
+					bytes.NewReader(requestBody),
+				)
+
+			case len(tt.userRoles) > 0 && tt.name == "unauthorized expired token":
+				// токен истёк по времени
+				req = createExpiredTokenRequest(
+					fiber.MethodPost,
+					"/api/v1/admin/employees",
+					bytes.NewReader(requestBody),
+				)
+
+			default:
+				req = createAuthenticatedRequest(
+					t,
+					fiber.MethodPost,
+					"/api/v1/admin/employees",
+					bytes.NewReader(requestBody),
+					tt.userRoles,
+				)
+			}
+
+			resp, err := app.Test(req)
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+
+			assert.Equal(t, tt.expectedCode, resp.StatusCode)
+
+			bodyBytes, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+
+			var responseBody common.Response[any]
+			err = json.Unmarshal(bodyBytes, &responseBody)
+			require.NoError(t, err)
+
+			if tt.expectError {
+				assert.False(t, responseBody.Success)
+				assert.NotEmpty(t, responseBody.Message)
+			} else {
+				assert.True(t, responseBody.Success)
+				if tt.expectedData != nil {
+					if data, ok := responseBody.Data.(map[string]any); ok {
+						assert.Equal(t, tt.expectedData, data["id"])
+					}
+				}
+			}
+
+			mockService.AssertExpectations(t)
+		})
+	}
+}
+
+func TestController_GetEmployee(t *testing.T) {
+	tests := []struct {
+		name         string
+		userRoles    []string
+		employeeId   string
+		requestFunc  func(method, url string, body io.Reader) *http.Request
+		mockSetup    func(*MockService)
+		expectedCode int
+		expectError  bool
+	}{
+		{
+			name:       "successful get with admin role",
+			userRoles:  []string{web.IdmAdmin},
+			employeeId: "123",
+			requestFunc: func(method, url string, body io.Reader) *http.Request {
+				return createAuthenticatedRequest(t, method, url, body, []string{web.IdmAdmin})
+			},
+			mockSetup: func(m *MockService) {
+				response := Response{
+					Id:   123,
+					Name: "John Doe",
+				}
+				m.On("FindById", mock.Anything, int64(123)).
+					Return(response, nil)
+			},
+			expectedCode: http.StatusOK,
+			expectError:  false,
+		},
+		{
+			name:       "successful get with user role",
+			userRoles:  []string{web.IdmUser},
+			employeeId: "123",
+			requestFunc: func(method, url string, body io.Reader) *http.Request {
+				return createAuthenticatedRequest(t, method, url, body, []string{web.IdmUser})
+			},
+			mockSetup: func(m *MockService) {
+				response := Response{
+					Id:   123,
+					Name: "Marry Beth",
+				}
+				m.On("FindById", mock.Anything, int64(123)).
+					Return(response, nil)
+			},
+			expectedCode: http.StatusOK,
+			expectError:  false,
+		},
+		{
+			name:        "unauthorized missing token",
+			userRoles:   nil,
+			employeeId:  "123",
+			requestFunc: createUnauthenticatedRequest,
+			mockSetup: func(m *MockService) {
+				// Сервис не должен вызываться
+			},
+			expectedCode: http.StatusUnauthorized,
+			expectError:  true,
+		},
+		{
+			name:        "unauthorized malformed token",
+			userRoles:   nil,
+			employeeId:  "123",
+			requestFunc: createMalformedTokenRequest,
+			mockSetup: func(m *MockService) {
+				// Сервис не должен вызываться
+			},
+			expectedCode: http.StatusUnauthorized,
+			expectError:  true,
+		},
+		{
+			name:        "unauthorized expired token",
+			userRoles:   nil,
+			employeeId:  "123",
+			requestFunc: createExpiredTokenRequest,
+			mockSetup: func(m *MockService) {
+				// Сервис не должен вызываться
+			},
+			expectedCode: http.StatusUnauthorized,
+			expectError:  true,
+		},
+		{
+			name:        "forbidden access without required role",
+			userRoles:   nil,
+			employeeId:  "123",
+			requestFunc: createForbiddenTokenRequest,
+			mockSetup: func(m *MockService) {
+				// Сервис не должен вызываться при отсутствии нужных ролей
+			},
+			expectedCode: http.StatusUnauthorized,
+			expectError:  true,
+		},
+		{
+			name:       "not found error",
+			userRoles:  []string{web.IdmAdmin},
+			employeeId: "999",
+			requestFunc: func(method, url string, body io.Reader) *http.Request {
+				return createAuthenticatedRequest(t, method, url, body, []string{web.IdmAdmin})
+			},
+			mockSetup: func(m *MockService) {
+				notFoundErr := common.NotFoundError{Message: "Employee not found"}
+				m.On("FindById", mock.Anything, int64(999)).
+					Return(Response{}, notFoundErr)
+			},
+			expectedCode: http.StatusNotFound,
+			expectError:  true,
+		},
+		{
+			name:       "invalid employee id",
+			userRoles:  []string{web.IdmAdmin},
+			employeeId: "invalid",
+			requestFunc: func(method, url string, body io.Reader) *http.Request {
+				return createAuthenticatedRequest(t, method, url, body, []string{web.IdmAdmin})
+			},
+			mockSetup: func(m *MockService) {
+				// Сервис не должен вызываться при невалидном ID
+			},
+			expectedCode: http.StatusBadRequest,
+			expectError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockService, app := setupTestServer(t)
+
+			if tt.mockSetup != nil {
+				tt.mockSetup(mockService)
+			}
+
+			url := "/api/v1/employees/" + tt.employeeId
+			req := tt.requestFunc(fiber.MethodGet, url, nil)
+
+			resp, err := app.Test(req)
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+
+			assert.Equal(t, tt.expectedCode, resp.StatusCode)
+
+			bodyBytes, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+
+			var responseBody common.Response[any]
+			err = json.Unmarshal(bodyBytes, &responseBody)
+			require.NoError(t, err)
+
+			if tt.expectError {
+				assert.False(t, responseBody.Success)
+				assert.NotEmpty(t, responseBody.Message)
+			} else {
+				assert.True(t, responseBody.Success)
+				assert.NotNil(t, responseBody.Data)
+			}
+
+			mockService.AssertExpectations(t)
+		})
+	}
+}
+
+func TestController_DeleteEmployee(t *testing.T) {
+	tests := []struct {
+		name         string
+		userRoles    []string
+		employeeId   string
+		requestFunc  func(method, url string, body io.Reader) *http.Request
+		mockSetup    func(*MockService)
+		expectedCode int
+		expectError  bool
+	}{
+		{
+			name:       "successful delete with admin role",
+			userRoles:  []string{web.IdmAdmin},
+			employeeId: "123",
+			requestFunc: func(method, url string, body io.Reader) *http.Request {
+				return createAuthenticatedRequest(t, method, url, body, []string{web.IdmAdmin})
+			},
+			mockSetup: func(m *MockService) {
+				m.On("DeleteById", mock.Anything, int64(123)).
+					Return(nil)
+			},
+			expectedCode: http.StatusOK,
+			expectError:  false,
+		},
+		{
+			name:       "forbidden access with user role",
+			userRoles:  []string{web.IdmUser},
+			employeeId: "123",
+			requestFunc: func(method, url string, body io.Reader) *http.Request {
+				return createAuthenticatedRequest(t, method, url, body, []string{web.IdmUser})
+			},
+			mockSetup: func(m *MockService) {
+				// Сервис не должен вызываться при отсутствии прав
+			},
+			expectedCode: http.StatusForbidden,
+			expectError:  true,
+		},
+		{
+			name:        "unauthorized missing token",
+			userRoles:   nil,
+			employeeId:  "123",
+			requestFunc: createUnauthenticatedRequest,
+			mockSetup: func(m *MockService) {
+				// Сервис не должен вызываться
+			},
+			expectedCode: http.StatusUnauthorized,
+			expectError:  true,
+		},
+		{
+			name:        "unauthorized malformed token",
+			userRoles:   nil,
+			employeeId:  "123",
+			requestFunc: createMalformedTokenRequest,
+			mockSetup: func(m *MockService) {
+				// Сервис не должен вызываться
+			},
+			expectedCode: http.StatusUnauthorized,
+			expectError:  true,
+		},
+		{
+			name:        "unauthorized expired token",
+			userRoles:   nil,
+			employeeId:  "123",
+			requestFunc: createExpiredTokenRequest,
+			mockSetup: func(m *MockService) {
+				// Сервис не должен вызываться
+			},
+			expectedCode: http.StatusUnauthorized,
+			expectError:  true,
+		},
+		{
+			name:       "not found error",
+			userRoles:  []string{web.IdmAdmin},
+			employeeId: "999",
+			requestFunc: func(method, url string, body io.Reader) *http.Request {
+				return createAuthenticatedRequest(t, method, url, body, []string{web.IdmAdmin})
+			},
+			mockSetup: func(m *MockService) {
+				notFoundErr := common.NotFoundError{Message: "Employee not found"}
+				m.On("DeleteById", mock.Anything, int64(999)).
+					Return(notFoundErr)
+			},
+			expectedCode: http.StatusNotFound,
+			expectError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockService, app := setupTestServer(t)
+
+			if tt.mockSetup != nil {
+				tt.mockSetup(mockService)
+			}
+
+			url := "/api/v1/admin/employees/" + tt.employeeId
+			req := tt.requestFunc(fiber.MethodDelete, url, nil)
+
+			resp, err := app.Test(req)
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+
+			assert.Equal(t, tt.expectedCode, resp.StatusCode)
+
+			bodyBytes, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+
+			var responseBody common.Response[any]
+			err = json.Unmarshal(bodyBytes, &responseBody)
+			require.NoError(t, err)
+
+			if tt.expectError {
+				assert.False(t, responseBody.Success)
+				assert.NotEmpty(t, responseBody.Message)
+			} else {
+				assert.True(t, responseBody.Success)
+			}
+
+			mockService.AssertExpectations(t)
+		})
+	}
+}
+
+func TestController_UnauthorizedAccess(t *testing.T) {
+	// Создаем сервер БЕЗ middleware (имитируем реальную ситуацию без аутентификации)
+	cfg := common.Config{
+		DbDriverName:   "postgres",
+		Dsn:            "test_dsn",
+		AppName:        "test_app",
+		AppVersion:     "1.0.0",
+		LogLevel:       "DEBUG",
+		LogDevelopMode: true,
+		SslSert:        "ssl.cert",
+		SslKey:         "ssl.key",
+		KeycloakJwkUrl: "http://localhost:9990/realms/idm/protocol/openid-connect/certs",
+	}
+
+	logger := common.NewLogger(cfg)
+	// Используем настоящий сервер с JWT middleware для тестирования неавторизованного доступа
+	server := web.NewServer(logger)
+
+	mockService := &MockService{}
+	controller := NewController(server, mockService, logger)
+	controller.RegisterRoutes()
+
+	tests := []struct {
+		name   string
+		method string
+		url    string
+		body   io.Reader
+	}{
+		{
+			name:   "create employee without auth",
+			method: fiber.MethodPost,
+			url:    "/api/v1/employees",
+			body:   strings.NewReader(`{"name": "John Doe"}`),
+		},
+		{
+			name:   "get employee without auth",
+			method: fiber.MethodGet,
+			url:    "/api/v1/employees/123",
+			body:   nil,
+		},
+		{
+			name:   "delete employee without auth",
+			method: fiber.MethodDelete,
+			url:    "/api/v1/employees/123",
+			body:   nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.url, tt.body)
+			req.Header.Set("Content-Type", "application/json")
+			// Намеренно НЕ добавляем Authorization header
+
+			resp, err := server.App.Test(req)
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+
+			// Без аутентификации должен возвращаться 401
+			assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+		})
+	}
 }
 
 func TestController_CreateEmployee_Success(t *testing.T) {
-	mockService, app := setupTestController(t)
+	mockService, app := setupTestServer(t)
 
 	createRequest := CreateRequest{
 		Name:       "John Doe",
@@ -117,8 +732,7 @@ func TestController_CreateEmployee_Success(t *testing.T) {
 	mockService.On("CreateEmployee", mock.Anything, createRequest).Return(expectedEmployeeId, nil)
 
 	requestBody, _ := json.Marshal(createRequest)
-	req := httptest.NewRequest("POST", "/api/v1/employees", bytes.NewReader(requestBody))
-	req.Header.Set("Content-Type", "application/json")
+	req := createAuthenticatedRequest(t, fiber.MethodPost, "/api/v1/admin/employees", bytes.NewReader(requestBody), []string{web.IdmAdmin})
 
 	resp, err := app.Test(req)
 
@@ -142,11 +756,10 @@ func TestController_CreateEmployee_Success(t *testing.T) {
 }
 
 func TestController_CreateEmployee_InvalidJSON(t *testing.T) {
-	_, app := setupTestController(t)
+	_, app := setupTestServer(t)
 
 	// Подготавливаем некорректный JSON
-	req := httptest.NewRequest("POST", "/api/v1/employees", bytes.NewReader([]byte("invalid json")))
-	req.Header.Set("Content-Type", "application/json")
+	req := createAuthenticatedRequest(t, fiber.MethodPost, "/api/v1/admin/employees", bytes.NewReader([]byte("invalid json")), []string{web.IdmAdmin})
 
 	resp, err := app.Test(req)
 
@@ -161,7 +774,7 @@ func TestController_CreateEmployee_InvalidJSON(t *testing.T) {
 }
 
 func TestController_CreateEmployee_ValidationError(t *testing.T) {
-	mockService, app := setupTestController(t)
+	mockService, app := setupTestServer(t)
 
 	createRequest := CreateRequest{
 		Name:       "John Doe",
@@ -175,8 +788,7 @@ func TestController_CreateEmployee_ValidationError(t *testing.T) {
 	mockService.On("CreateEmployee", mock.Anything, createRequest).Return(int64(0), validationError)
 
 	requestBody, _ := json.Marshal(createRequest)
-	req := httptest.NewRequest("POST", "/api/v1/employees", bytes.NewReader(requestBody))
-	req.Header.Set("Content-Type", "application/json")
+	req := createAuthenticatedRequest(t, fiber.MethodPost, "/api/v1/admin/employees", bytes.NewReader(requestBody), []string{web.IdmAdmin})
 
 	resp, err := app.Test(req)
 
@@ -193,7 +805,7 @@ func TestController_CreateEmployee_ValidationError(t *testing.T) {
 }
 
 func TestController_CreateEmployee_AlreadyExistsError(t *testing.T) {
-	mockService, app := setupTestController(t)
+	mockService, app := setupTestServer(t)
 
 	createRequest := CreateRequest{
 		Name:       "John Doe",
@@ -207,8 +819,7 @@ func TestController_CreateEmployee_AlreadyExistsError(t *testing.T) {
 	mockService.On("CreateEmployee", mock.Anything, createRequest).Return(int64(0), alreadyExistsError)
 
 	requestBody, _ := json.Marshal(createRequest)
-	req := httptest.NewRequest("POST", "/api/v1/employees", bytes.NewReader(requestBody))
-	req.Header.Set("Content-Type", "application/json")
+	req := createAuthenticatedRequest(t, fiber.MethodPost, "/api/v1/admin/employees", bytes.NewReader(requestBody), []string{web.IdmAdmin})
 
 	resp, err := app.Test(req)
 
@@ -226,7 +837,7 @@ func TestController_CreateEmployee_AlreadyExistsError(t *testing.T) {
 
 func TestController_CreateEmployee_InternalServerError(t *testing.T) {
 
-	mockService, app := setupTestController(t)
+	mockService, app := setupTestServer(t)
 
 	createRequest := CreateRequest{
 		Name:       "John Doe",
@@ -240,8 +851,7 @@ func TestController_CreateEmployee_InternalServerError(t *testing.T) {
 	mockService.On("CreateEmployee", mock.Anything, createRequest).Return(int64(0), internalError)
 
 	requestBody, _ := json.Marshal(createRequest)
-	req := httptest.NewRequest("POST", "/api/v1/employees", bytes.NewReader(requestBody))
-	req.Header.Set("Content-Type", "application/json")
+	req := createAuthenticatedRequest(t, fiber.MethodPost, "/api/v1/admin/employees", bytes.NewReader(requestBody), []string{web.IdmAdmin})
 
 	resp, err := app.Test(req)
 
@@ -258,7 +868,7 @@ func TestController_CreateEmployee_InternalServerError(t *testing.T) {
 }
 
 func TestController_CreateEmployee_InvalidData_ReturnsValidationError(t *testing.T) {
-	mockService, app := setupTestController(t)
+	mockService, app := setupTestServer(t)
 
 	// Невалидные данные (пустое имя)
 	createRequest := CreateRequest{
@@ -272,8 +882,7 @@ func TestController_CreateEmployee_InvalidData_ReturnsValidationError(t *testing
 	mockService.On("CreateEmployee", mock.Anything, createRequest).Return(int64(0), validationError)
 
 	requestBody, _ := json.Marshal(createRequest)
-	req := httptest.NewRequest("POST", "/api/v1/employees", bytes.NewReader(requestBody))
-	req.Header.Set("Content-Type", "application/json")
+	req := createAuthenticatedRequest(t, fiber.MethodPost, "/api/v1/admin/employees", bytes.NewReader(requestBody), []string{web.IdmAdmin})
 
 	resp, err := app.Test(req)
 	assert.NoError(t, err)
@@ -350,15 +959,14 @@ func TestFindEmployeesWithPagination_ValidationErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockService, app := setupTestController(t)
+			mockService, app := setupTestServer(t)
 
 			mockService.On("FindWithPagination", mock.Anything, mock.AnythingOfType("PageRequest")).
 				Return(PageResponse{}, errors.New("validation error")).Once()
 
 			url := fmt.Sprintf("/api/v1/employees/page?pageNumber=%s&pageSize=%s", tt.pageNumber, tt.pageSize)
 
-			req := httptest.NewRequest("GET", url, nil)
-			req.Header.Set("Content-Type", "application/json")
+			req := createAuthenticatedRequest(t, fiber.MethodGet, url, nil, []string{web.IdmUser})
 
 			resp, err := app.Test(req)
 			require.NoError(t, err)
@@ -378,7 +986,7 @@ func TestFindEmployeesWithPagination_ValidationErrors(t *testing.T) {
 
 // Тестирует успешный сценарий
 func TestFindEmployeesWithPagination_Success(t *testing.T) {
-	mockService, app := setupTestController(t)
+	mockService, app := setupTestServer(t)
 
 	expectedResponse := PageResponse{
 		Data: []Response{
@@ -399,8 +1007,7 @@ func TestFindEmployeesWithPagination_Success(t *testing.T) {
 
 	mockService.On("FindWithPagination", mock.Anything, expectedRequest).Return(expectedResponse, nil).Once()
 
-	req := httptest.NewRequest("GET", "/api/v1/employees/page?pageNumber=1&pageSize=10", nil)
-	req.Header.Set("Content-Type", "application/json")
+	req := createAuthenticatedRequest(t, fiber.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=10", nil, []string{web.IdmUser})
 
 	resp, err := app.Test(req)
 	require.NoError(t, err)
@@ -434,7 +1041,7 @@ func TestFindEmployeesWithPagination_Success(t *testing.T) {
 
 // Тестирует использование значений по умолчанию
 func TestFindEmployeesWithPagination_DefaultValues(t *testing.T) {
-	mockService, app := setupTestController(t)
+	mockService, app := setupTestServer(t)
 
 	expectedResponse := PageResponse{
 		Data:       []Response{},
@@ -455,8 +1062,7 @@ func TestFindEmployeesWithPagination_DefaultValues(t *testing.T) {
 		Once()
 
 	// HTTP запрос без параметров (значения по умолчанию)
-	req := httptest.NewRequest("GET", "/api/v1/employees/page", nil)
-	req.Header.Set("Content-Type", "application/json")
+	req := createAuthenticatedRequest(t, fiber.MethodGet, "/api/v1/employees/page", nil, []string{web.IdmUser})
 
 	resp, err := app.Test(req)
 	require.NoError(t, err)
@@ -478,14 +1084,13 @@ func TestFindEmployeesWithPagination_DefaultValues(t *testing.T) {
 
 // Тестирует обработку ошибок сервиса
 func TestFindEmployeesWithPagination_ServiceError(t *testing.T) {
-	mockService, app := setupTestController(t)
+	mockService, app := setupTestServer(t)
 
 	mockService.On("FindWithPagination", mock.Anything, mock.Anything).
 		Return(PageResponse{}, errors.New("Invalid pagination request")).
 		Once()
 
-	req := httptest.NewRequest("GET", "/api/v1/employees/page?pageNumber=1&pageSize=10", nil)
-	req.Header.Set("Content-Type", "application/json")
+	req := createAuthenticatedRequest(t, fiber.MethodGet, "/api/v1/employees/page?pageNumber=1&pageSize=10", nil, []string{web.IdmUser})
 
 	resp, err := app.Test(req)
 	require.NoError(t, err)
@@ -526,6 +1131,7 @@ func TestNewController(t *testing.T) {
 	LOG_DEVELOP_MODE=true
 	SSL_SERT=ssl.cert
 	SSL_KEY=ssl.key
+	KEYCLOAK_JWK_URL=http://localhost:9990/realms/idm/protocol/openid-connect/certs 
 	`)
 	err := os.WriteFile(envFilePath, dotEnvContent, 0644)
 	require.NoError(t, err)
@@ -544,12 +1150,11 @@ func TestNewController(t *testing.T) {
 }
 
 func TestController_RegisterRoutes(t *testing.T) {
-	_, app := setupTestController(t)
+	_, app := setupTestServer(t)
 
 	// Проверка, что маршрут был зарегистрирован
 	// Тестовый запрос с некорректными данными
-	req := httptest.NewRequest("POST", "/api/v1/employees", bytes.NewReader([]byte("test")))
-	req.Header.Set("Content-Type", "application/json")
+	req := createAuthenticatedRequest(t, fiber.MethodPost, "/api/v1/employees", bytes.NewReader([]byte("test")), []string{web.IdmAdmin})
 
 	resp, err := app.Test(req)
 

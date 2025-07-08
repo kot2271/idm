@@ -103,6 +103,9 @@ paths:
           description: Error when deleting employees
           schema:
             $ref: '#/definitions/Response-any'
+      security:
+      - OAuth2AccessCode:
+        - write
       summary: Delete employees by ID list
       tags:
       - employees
@@ -121,6 +124,9 @@ paths:
           description: Error when getting the list of employees
           schema:
             $ref: '#/definitions/Response-any'
+      security:
+      - OAuth2AccessCode:
+        - read
       summary: Get all employees
       tags:
       - employees
@@ -150,6 +156,9 @@ paths:
           description: Internal server error
           schema:
             $ref: '#/definitions/Response-any'
+      security:
+      - OAuth2AccessCode:
+        - write
       summary: Create an employee
       tags:
       - employees
@@ -179,6 +188,9 @@ paths:
           description: Error when deleting an employee
           schema:
             $ref: '#/definitions/Response-any'
+      security:
+      - OAuth2AccessCode:
+        - write
       summary: Delete employee
       tags:
       - employees
@@ -205,6 +217,9 @@ paths:
           description: Employee not found
           schema:
             $ref: '#/definitions/Response-any'
+      security:
+      - OAuth2AccessCode:
+        - read
       summary: Get employee by ID
       tags:
       - employees
@@ -239,6 +254,9 @@ paths:
           description: Error searching for employees
           schema:
             $ref: '#/definitions/Response-any'
+      security:
+      - OAuth2AccessCode:
+        - read
       summary: Get employees by ID list
       tags:
       - employees
@@ -272,6 +290,9 @@ paths:
           description: Error when getting paginated employees
           schema:
             $ref: '#/definitions/Response-any'
+      security:
+      - OAuth2AccessCode:
+        - read
       summary: Get employees with pagination
       tags:
       - employees
@@ -279,6 +300,33 @@ schemes:
 - http
 - https
 securityDefinitions:
-  BasicAuth:
-    type: basic
+  OAuth2AccessCode:
+    authorizationUrl: http://localhost:9990/realms/idm/protocol/openid-connect/auth
+    flow: accessCode
+    scopes:
+      read: Read access
+      write: Write access
+    tokenUrl: http://localhost:9990/realms/idm/protocol/openid-connect/token
+    type: oauth2
+  OAuth2Application:
+    flow: application
+    scopes:
+      read: Read access
+      write: Write access
+    tokenUrl: http://localhost:9990/realms/idm/protocol/openid-connect/token
+    type: oauth2
+  OAuth2Implicit:
+    authorizationUrl: http://localhost:9990/realms/idm/protocol/openid-connect/auth
+    flow: implicit
+    scopes:
+      read: Read access
+      write: Write access
+    type: oauth2
+  OAuth2Password:
+    flow: password
+    scopes:
+      read: Read access
+      write: Write access
+    tokenUrl: http://localhost:9990/realms/idm/protocol/openid-connect/token
+    type: oauth2
 swagger: "2.0"
