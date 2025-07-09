@@ -47,12 +47,13 @@ jobs:
           KC_LOG_LEVEL: INFO
           KC_HEALTH_ENABLED: "true"
           KC_METRICS_ENABLED: "false"
-          KC_IMPORT_PATH: /opt/keycloak/data/import/realm.json
+          KC_IMPORT: /opt/keycloak/data/import/realm.json
           KC_HOSTNAME_STRICT_HTTPS: "false"
           KC_HTTP_ENABLED: "true"
+          KC_HOSTNAME: localhost
         options: >-
           --entrypoint /opt/keycloak/bin/kc.sh
-          --cmd start-dev
+          --start-dev
           --health-cmd="echo 'Checking if Keycloak is up'"
           --health-interval=10s
           --health-timeout=5s
