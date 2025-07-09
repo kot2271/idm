@@ -39,6 +39,9 @@ jobs:
 
       - name: Start Keycloak with PostgreSQL
         run: |
+          HOST_IP=$(hostname -I | awk '{print $1}')
+          echo "Host IP: $HOST_IP"
+          
           docker run -d \
             --name keycloak \
             -v /tmp/keycloak-import:/opt/keycloak/data/import \
@@ -47,7 +50,7 @@ jobs:
             -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
             -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
             -e KC_DB=postgres \
-            -e KC_DB_URL_HOST=host.docker.internal \
+            -e KC_DB_URL_HOST=$HOST_IP \
             -e KC_DB_URL_PORT=5432 \
             -e KC_DB_SCHEMA=public \
             -e KC_DB_URL_DATABASE=keycloak_db \
@@ -60,17 +63,31 @@ jobs:
             -e KC_HTTP_ENABLED=true \
             -e KC_HOSTNAME=localhost \
             -e KC_HOSTNAME_STRICT=false \
-            --add-host=host.docker.internal:host-gateway \
             quay.io/keycloak/keycloak:26.2.2 \
             start-dev --import-realm
+
+      - name: Debug container status
+        run: |
+          echo "=== Container Status ==="
+          docker ps -a
+          echo "=== Port Status ==="
+          netstat -tlnp | grep -E ':(8080|9000)' || echo "No services on ports 8080/9000"
+          echo "=== Testing connectivity ==="
+          curl -v http://localhost:8080/ || echo "Main port not accessible"
+          curl -v http://localhost:9000/ || echo "Management port not accessible"
 
       - name: Wait for Keycloak to be ready
         run: |
           echo "Waiting for Keycloak to start..."
-          timeout 300 bash -c 'until curl -f http://localhost:8080/health/ready 2>/dev/null; do 
-            echo "Waiting for Keycloak... ($(date))"
+          
+          timeout 300 bash -c 'until curl -f http://localhost:8080/ 2>/dev/null; do 
+            echo "Waiting for Keycloak main port... ($(date))"
             sleep 10
           done'
+          
+          echo "Checking health endpoint..."
+          curl -f http://localhost:9000/health/ready 2>/dev/null || echo "Health endpoint on 9000 not available"
+          curl -f http://localhost:8080/health/ready 2>/dev/null || echo "Health endpoint on 8080 not available"
           
           echo "Waiting for master realm..."
           timeout 60 bash -c 'until curl -f http://localhost:8080/realms/master 2>/dev/null; do 
