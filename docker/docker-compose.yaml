@@ -35,8 +35,8 @@ services:
       - "9990:8080"
       - "9991:8443"
     environment:
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
       KC_PROXY: edge
       KC_METRICS_ENABLED: "false"
       KC_HEALTH_ENABLED: "false"
