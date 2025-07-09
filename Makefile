@@ -15,12 +15,17 @@ swagger-fmt:
 swagger-rebuild: swagger-fmt swagger-gen
 	@echo "Swagger документация успешно сгенерирована в папке docs/"
 
+# export PATH=$PATH:/Users/mini_kotan/go/bin   
+
 # Запуск приложения
 run:
 	go run cmd/main.go
 
 # Сборка приложения
 build:
-	go build cmd/main.go 
+	go build cmd/main.go
+
+test:
+	go test -v idm/...
 
 .PHONY: install-swag swagger-gen swagger-fmt swagger-rebuild run build

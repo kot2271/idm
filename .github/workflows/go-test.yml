@@ -1,6 +1,7 @@
 # This workflow will build a golang project
 # For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
 
+# 1.24 26.2.2
 name: Go Test with Keycloak
 
 on:
@@ -27,11 +28,14 @@ jobs:
         docker run -d \
           --name keycloak \
           -p 9990:8080 \
-          -e KEYCLOAK_ADMIN=admin \
-          -e KEYCLOAK_ADMIN_PASSWORD=admin \
+          -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+          -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
           -e KC_HEALTH_ENABLED=true \
           -e KC_METRICS_ENABLED=false \
           -e KC_LOG_LEVEL=INFO \
+          -e KC_HTTP_ENABLED=true \
+          -e KC_HOSTNAME_STRICT=false \
+          -e KC_HOSTNAME_STRICT_HTTPS=false \
           quay.io/keycloak/keycloak:26.2.2 \
           start-dev
     
@@ -42,6 +46,11 @@ jobs:
         timeout 180 bash -c 'until curl -f http://localhost:9990/health/ready 2>/dev/null; do 
           echo "Waiting for Keycloak... ($(date))"
           sleep 15
+        done'
+        
+        timeout 60 bash -c 'until curl -f http://localhost:9990/realms/master 2>/dev/null; do 
+          echo "Waiting for auth endpoint... ($(date))"
+          sleep 5
         done'
         
         echo "Keycloak is ready!"
@@ -56,6 +65,11 @@ jobs:
           -d "grant_type=password" \
           -d "client_id=admin-cli" | jq -r '.access_token')
         
+        if [ "$ACCESS_TOKEN" = "null" ] || [ -z "$ACCESS_TOKEN" ]; then
+          echo "Failed to get access token"
+          exit 1
+        fi
+        
         echo "Creating realm..."
         curl -X POST http://localhost:9990/admin/realms \
           -H "Authorization: Bearer $ACCESS_TOKEN" \
@@ -67,6 +81,7 @@ jobs:
         
         echo "Waiting for JWKS endpoint..."
         timeout 60 bash -c 'until curl -f http://localhost:9990/realms/idm/protocol/openid-connect/certs; do 
+          echo "Waiting for JWKS... ($(date))"
           sleep 5
         done'
         
@@ -80,6 +95,8 @@ jobs:
       run: |
         echo "=== Keycloak Logs ==="
         docker logs keycloak
+        echo "=== Container Status ==="
+        docker ps -a | grep keycloak
     
     - name: Cleanup
       if: always()
