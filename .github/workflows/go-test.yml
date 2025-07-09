@@ -1,7 +1,7 @@
 # This workflow will build a golang project
 # For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
 
-name: Go Test with Keycloak
+name: Go Test
 
 on:
   push:
@@ -13,59 +13,25 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: keycloak_db
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U postgres"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
-
-      keycloak:
-        image: quay.io/keycloak/keycloak:26.2.2
-        ports:
-          - 9990:8080
-          - 9991:8443
-        volumes:
-          - ./docker/auth/import:/opt/keycloak/data/import
-        env:
-          KEYCLOAK_ADMIN: admin
-          KEYCLOAK_ADMIN_PASSWORD: admin
-          KC_PROXY: edge
-          KC_DB: postgres
-          KC_DB_URL_HOST: postgres
-          KC_DB_URL_PORT: 5432
-          KC_DB_SCHEMA: public
-          KC_DB_URL_DATABASE: keycloak_db
-          KC_DB_USERNAME: postgres
-          KC_DB_PASSWORD: postgres
-          KC_LOG_LEVEL: INFO
-          KC_IMPORT_PATH: /opt/keycloak/data/import/realm.json
-        options: >-
-          --health-cmd="echo 'Checking if Keycloak is up'"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=30
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.24'
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.24'
 
-      - name: Wait for Keycloak to be ready
-        run: |
-          sleep 10
+    - name: Start services
+      run: |
+        docker-compose up -d
 
-      - name: Run tests
-        run: |
-          go test -v ./inner/...
+    - name: Wait for services
+      run: |
+        timeout 300 bash -c 'until docker-compose exec -T keycloak curl -f http://localhost:8080/health; do sleep 10; done'
+        
+    - name: Test
+      run: go test -v ./inner/...
+
+    - name: Stop services
+      if: always()
+      run: docker-compose down
