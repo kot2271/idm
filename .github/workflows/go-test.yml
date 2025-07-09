@@ -41,13 +41,13 @@ jobs:
         run: |
           docker run -d \
             --name keycloak \
-            --network host \
             -v /tmp/keycloak-import:/opt/keycloak/data/import \
-            -p 9990:8080 \
+            -p 8080:8080 \
+            -p 9000:9000 \
             -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
             -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
             -e KC_DB=postgres \
-            -e KC_DB_URL_HOST=localhost \
+            -e KC_DB_URL_HOST=host.docker.internal \
             -e KC_DB_URL_PORT=5432 \
             -e KC_DB_SCHEMA=public \
             -e KC_DB_URL_DATABASE=keycloak_db \
@@ -60,25 +60,26 @@ jobs:
             -e KC_HTTP_ENABLED=true \
             -e KC_HOSTNAME=localhost \
             -e KC_HOSTNAME_STRICT=false \
+            --add-host=host.docker.internal:host-gateway \
             quay.io/keycloak/keycloak:26.2.2 \
             start-dev --import-realm
 
       - name: Wait for Keycloak to be ready
         run: |
           echo "Waiting for Keycloak to start..."
-          timeout 300 bash -c 'until curl -f http://localhost:9990/health/ready 2>/dev/null; do 
+          timeout 300 bash -c 'until curl -f http://localhost:8080/health/ready 2>/dev/null; do 
             echo "Waiting for Keycloak... ($(date))"
             sleep 10
           done'
           
           echo "Waiting for master realm..."
-          timeout 60 bash -c 'until curl -f http://localhost:9990/realms/master 2>/dev/null; do 
+          timeout 60 bash -c 'until curl -f http://localhost:8080/realms/master 2>/dev/null; do 
             echo "Waiting for master realm... ($(date))"
             sleep 5
           done'
           
           echo "Waiting for imported realm..."
-          timeout 60 bash -c 'until curl -f http://localhost:9990/realms/idm 2>/dev/null; do 
+          timeout 60 bash -c 'until curl -f http://localhost:8080/realms/idm 2>/dev/null; do 
             echo "Waiting for imported realm... ($(date))"
             sleep 5
           done'
@@ -88,11 +89,11 @@ jobs:
       - name: Verify realm import
         run: |
           echo "Checking available realms..."
-          curl -s http://localhost:9990/realms/master | jq -r '.realm // "master realm accessible"'
-          curl -s http://localhost:9990/realms/idm | jq -r '.realm // "idm realm accessible"'
+          curl -s http://localhost:8080/realms/master | jq -r '.realm // "master realm accessible"'
+          curl -s http://localhost:8080/realms/idm | jq -r '.realm // "idm realm accessible"'
           
           echo "Checking JWKS endpoint..."
-          curl -f http://localhost:9990/realms/idm/protocol/openid-connect/certs
+          curl -f http://localhost:8080/realms/idm/protocol/openid-connect/certs
 
       - name: Run tests
         run: go test -v ./inner/...
