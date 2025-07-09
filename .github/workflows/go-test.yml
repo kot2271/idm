@@ -32,7 +32,7 @@ jobs:
           - 9990:8080
           - 9991:8443
         volumes:
-          - $(pwd)/docker/auth/import/realm.json:/opt/keycloak/data/import/realm.json
+          - realm_import:/opt/keycloak/data/import
         env:
           KC_BOOTSTRAP_ADMIN_USERNAME: admin
           KC_BOOTSTRAP_ADMIN_PASSWORD: admin
