@@ -1,0 +1,49 @@
+{
+    "realm": "idm",
+    "enabled": true,
+    "displayName": "IDM Realm",
+    "userManagedAccessAllowed": true,
+    "defaultRoles": ["user"],
+    "roles": {
+      "realm": [
+        {
+          "name": "IDM_ADMIN",
+          "description": "IDM Administrator"
+        },
+        {
+          "name": "IDM_USER",
+          "description": "IDM User"
+        }
+      ]
+    },
+    "users": [
+      {
+        "username": "new-user2",
+        "enabled": true,
+        "emailVerified": false,
+        "attributes": {},
+        "credentials": [
+          {
+            "type": "password",
+            "value": "12345",
+            "temporary": false
+          }
+        ],
+        "realmRoles": ["IDM_USER"]
+      },
+      {
+        "username": "new-user",
+        "enabled": true,
+        "emailVerified": false,
+        "attributes": {},
+        "credentials": [
+          {
+            "type": "password",
+            "value": "12345",
+            "temporary": false
+          }
+        ],
+        "realmRoles": ["IDM_ADMIN"]
+      }
+    ]
+  }
