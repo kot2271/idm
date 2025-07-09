@@ -13,20 +13,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
     
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: keycloak_db
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U postgres"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -36,39 +22,38 @@ jobs:
       with:
         go-version: '1.24'
     
-    - name: Start Keycloak
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq curl
+    
+    - name: Start Keycloak using dasniko/testcontainers-keycloak
       run: |
         docker run -d \
           --name keycloak \
-          --network host \
           -p 9990:8080 \
           -e KEYCLOAK_ADMIN=admin \
           -e KEYCLOAK_ADMIN_PASSWORD=admin \
-          -e KC_PROXY=edge \
-          -e KC_DB=postgres \
-          -e KC_DB_URL_HOST=localhost \
-          -e KC_DB_URL_PORT=5432 \
-          -e KC_DB_SCHEMA=public \
-          -e KC_DB_URL_DATABASE=keycloak_db \
-          -e KC_DB_USERNAME=postgres \
-          -e KC_DB_PASSWORD=postgres \
-          -e KC_LOG_LEVEL=INFO \
-          -e KC_HEALTH_ENABLED=true \
-          quay.io/keycloak/keycloak:26.2.2 \
-          start-dev
+          dasniko/testcontainers-keycloak:latest
     
-    - name: Wait for Keycloak to be ready
+    - name: Wait for Keycloak
       run: |
         echo "Waiting for Keycloak to start..."
-        timeout 300 bash -c 'until curl -f http://localhost:9990/health/ready; do 
-          echo "Waiting for Keycloak..."
+
+        timeout 120 bash -c 'until docker exec keycloak curl -f http://localhost:8080/health/ready 2>/dev/null; do 
+          echo "Waiting for Keycloak health check... ($(date))"
           sleep 10
         done'
+        
+        timeout 60 bash -c 'until curl -f http://localhost:9990/health/ready 2>/dev/null; do 
+          echo "Waiting for host access... ($(date))"
+          sleep 5
+        done'
+        
         echo "Keycloak is ready!"
     
     - name: Create test realm
       run: |
-        # Получаем admin token
         ACCESS_TOKEN=$(curl -s -X POST http://localhost:9990/realms/master/protocol/openid-connect/token \
           -H "Content-Type: application/x-www-form-urlencoded" \
           -d "username=admin" \
@@ -83,23 +68,32 @@ jobs:
           -d '{
             "realm": "idm",
             "enabled": true,
-            "displayName": "IDM Realm"
+            "displayName": "Test Realm"
           }'
         
-        echo "Test realm created!"
-        
-        # Проверяем JWKS endpoint
-        timeout 60 bash -c 'until curl -f http://localhost:9990/realms/idm/protocol/openid-connect/certs; do 
-          echo "Waiting for JWKS endpoint..."
-          sleep 5
+        timeout 30 bash -c 'until curl -f http://localhost:9990/realms/idm/protocol/openid-connect/certs; do 
+          sleep 2
         done'
-        echo "JWKS endpoint is ready!"
+        
+        echo "Test realm created!"
     
     - name: Run tests
-      run: |
-        go test -v ./inner/...
+      run: go test -v ./inner/...
     
-    - name: Stop Keycloak
+    - name: Debug on failure
+      if: failure()
+      run: |
+        echo "=== Container Status ==="
+        docker ps -a
+        
+        echo "=== Keycloak Logs ==="
+        docker logs keycloak
+        
+        echo "=== Test connection ==="
+        curl -v http://localhost:9990/health/ready || echo "Health endpoint failed"
+        curl -v http://localhost:9990/realms/idm/protocol/openid-connect/certs || echo "JWKS failed"
+    
+    - name: Cleanup
       if: always()
       run: |
         docker stop keycloak || true
