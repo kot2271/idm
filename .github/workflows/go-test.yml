@@ -33,7 +33,7 @@ jobs:
           - 9990:8080
           - 9991:8443
         volumes:
-          - docker/auth/import:/opt/keycloak/data/import
+          - ./docker/auth/import:/opt/keycloak/data/import
         env:
           KEYCLOAK_ADMIN: admin
           KEYCLOAK_ADMIN_PASSWORD: admin
