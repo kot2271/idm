@@ -14,8 +14,7 @@ swagger-fmt:
 # Полная пересборка документации
 swagger-rebuild: swagger-fmt swagger-gen
 	@echo "Swagger документация успешно сгенерирована в папке docs/"
-
-# export PATH=$PATH:/Users/mini_kotan/go/bin   
+ 
 
 # Запуск приложения
 run:
