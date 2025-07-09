@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -67,6 +68,21 @@ func (m *MockService) FindWithPagination(ctx context.Context, request PageReques
 
 // setupTestServer создает тестовый сервер с настроенной аутентификацией
 func setupTestServer(t *testing.T) (*MockService, *fiber.App) {
+	wd, _ := os.Getwd()
+	path := filepath.Join(wd, "..", "..", ".env")
+
+	var err = godotenv.Load(path)
+	// если нет файла, то залогируем это
+	if err != nil {
+		fmt.Printf("Error loading .env file")
+	}
+
+	getEnv := func(key, fallback string) string {
+		if value := os.Getenv(key); value != "" {
+			return value
+		}
+		return fallback
+	}
 
 	cfg := common.Config{
 		DbDriverName:   "postgres",
@@ -77,7 +93,7 @@ func setupTestServer(t *testing.T) (*MockService, *fiber.App) {
 		LogDevelopMode: true,
 		SslSert:        "ssl.cert",
 		SslKey:         "ssl.key",
-		KeycloakJwkUrl: "http://localhost:9990/realms/idm/protocol/openid-connect/certs",
+		KeycloakJwkUrl: getEnv("KEYCLOAK_JWK_URL", web.DefaultJwkUrl),
 	}
 
 	logger := common.NewLogger(cfg)
@@ -664,7 +680,7 @@ func TestController_UnauthorizedAccess(t *testing.T) {
 		LogDevelopMode: true,
 		SslSert:        "ssl.cert",
 		SslKey:         "ssl.key",
-		KeycloakJwkUrl: "http://localhost:9990/realms/idm/protocol/openid-connect/certs",
+		KeycloakJwkUrl: "http://localhost:8080/realms/idm/protocol/openid-connect/certs",
 	}
 
 	logger := common.NewLogger(cfg)

@@ -2,6 +2,8 @@ package web
 
 import (
 	"idm/inner/common"
+	"os"
+	"path/filepath"
 	"slices"
 
 	jwtMiddleware "github.com/gofiber/contrib/jwt"
@@ -11,9 +13,11 @@ import (
 )
 
 const (
-	JwtKey   = "jwt"
-	IdmAdmin = "IDM_ADMIN"
-	IdmUser  = "IDM_USER"
+	JwtKey        = "jwt"
+	IdmAdmin      = "IDM_ADMIN"
+	IdmUser       = "IDM_USER"
+	DefaultJwkUrl = "http://localhost:8080/realms/idm/protocol/openid-connect/certs"
+	EnvFileName   = ".env"
 )
 
 type IdmClaims struct {
@@ -25,12 +29,38 @@ type RealmAccessClaims struct {
 	Roles []string `json:"roles"`
 }
 
+func FindEnvFile() string {
+	dir, _ := os.Getwd()
+	for range 5 {
+		path := filepath.Join(dir, EnvFileName)
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+		dir = filepath.Dir(dir)
+	}
+	return ""
+}
+
+func getJwkUrl(logger *common.Logger) string {
+	var jwkURL string
+
+	if envPath := FindEnvFile(); envPath != "" {
+		cfg := common.GetConfig(envPath)
+		jwkURL = cfg.KeycloakJwkUrl
+	} else {
+		logger.Warn("KEYCLOAK_JWK_URL is not set, using default URL")
+		jwkURL = DefaultJwkUrl
+	}
+
+	return jwkURL
+}
+
 // middleware для JWT аутентификации
 func AuthMiddleware(logger *common.Logger) fiber.Handler {
 	config := jwtMiddleware.Config{
 		ContextKey:   JwtKey,
 		ErrorHandler: createJwtErrorHandler(logger),
-		JWKSetURLs:   []string{"http://localhost:9990/realms/idm/protocol/openid-connect/certs"},
+		JWKSetURLs:   []string{getJwkUrl(logger)},
 		Claims:       &IdmClaims{},
 	}
 	return jwtMiddleware.New(config)

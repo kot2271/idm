@@ -2,19 +2,38 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"idm/inner/common"
 	"idm/inner/testutils"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zaptest"
 )
 
 func SetupTestConfig() common.Config {
+	wd, _ := os.Getwd()
+	path := filepath.Join(wd, "..", "..", EnvFileName)
+
+	var err = godotenv.Load(path)
+	// если нет файла, то залогируем это и попробуем получить конфиг из переменных окружения
+	if err != nil {
+		fmt.Printf("Error loading .env file")
+	}
+
+	getEnv := func(key, fallback string) string {
+		if value := os.Getenv(key); value != "" {
+			return value
+		}
+		return fallback
+	}
 	return common.Config{
 		DbDriverName:   "postgres",
 		Dsn:            "localhost port=5432 user=wronguser password=wrongpass dbname=postgres sslmode=disable",
@@ -24,7 +43,7 @@ func SetupTestConfig() common.Config {
 		LogDevelopMode: true,
 		SslSert:        "ssl.cert",
 		SslKey:         "ssl.key",
-		KeycloakJwkUrl: "http://localhost:9990/realms/idm/protocol/openid-connect/certs",
+		KeycloakJwkUrl: getEnv("KEYCLOAK_JWK_URL", DefaultJwkUrl),
 	}
 }
 
