@@ -12,6 +12,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    
     services:
       postgres:
         image: postgres:17-alpine
@@ -26,44 +27,59 @@ jobs:
           --health-timeout=5s
           --health-retries=10
 
-      keycloak:
-        image: quay.io/keycloak/keycloak:26.2.2
-        ports:
-          - 9990:8080
-        volumes:
-          - ./auth/import:/opt/keycloak/data/import
-        env:
-          KEYCLOAK_ADMIN: admin
-          KEYCLOAK_ADMIN_PASSWORD: admin
-          KC_PROXY: edge
-          KC_DB: postgres
-          KC_DB_URL_HOST: postgres
-          KC_DB_URL_PORT: 5432
-          KC_DB_SCHEMA: public
-          KC_DB_URL_DATABASE: keycloak_db
-          KC_DB_USERNAME: postgres
-          KC_DB_PASSWORD: postgres
-          KC_LOG_LEVEL: INFO
-          KC_IMPORT_PATH: /opt/keycloak/data/import/realm.json
-        options: >-
-          --health-cmd="echo 'Checking if Keycloak is up'"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=30
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.24'
-
-      - name: Wait for Keycloak to be ready
-        run: |
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.24'
+    
+    - name: Start Keycloak
+      run: |
+        docker run -d \
+          --name keycloak \
+          --network host \
+          -p 9990:8080 \
+          -v ${{ github.workspace }}/docker/auth/import:/opt/keycloak/data/import \
+          -e KEYCLOAK_ADMIN=admin \
+          -e KEYCLOAK_ADMIN_PASSWORD=admin \
+          -e KC_PROXY=edge \
+          -e KC_DB=postgres \
+          -e KC_DB_URL_HOST=localhost \
+          -e KC_DB_URL_PORT=5432 \
+          -e KC_DB_SCHEMA=public \
+          -e KC_DB_URL_DATABASE=keycloak_db \
+          -e KC_DB_USERNAME=postgres \
+          -e KC_DB_PASSWORD=postgres \
+          -e KC_LOG_LEVEL=INFO \
+          -e KC_HEALTH_ENABLED=true \
+          quay.io/keycloak/keycloak:26.2.2 \
+          start-dev --import-realm
+    
+    - name: Wait for Keycloak to be ready
+      run: |
+        echo "Waiting for Keycloak to start..."
+        timeout 300 bash -c 'until curl -f http://localhost:9990/health/ready; do 
+          echo "Waiting for Keycloak..."
           sleep 10
-
-      - name: Run tests
-        run: |
-          go test -v ./inner/...
+        done'
+        echo "Keycloak is ready!"
+        
+        echo "Checking JWKS endpoint..."
+        timeout 60 bash -c 'until curl -f http://localhost:9990/realms/idm/protocol/openid-connect/certs; do 
+          echo "Waiting for JWKS endpoint..."
+          sleep 5
+        done'
+        echo "JWKS endpoint is ready!"
+    
+    - name: Run tests
+      run: |
+        go test -v ./inner/...
+    
+    - name: Stop Keycloak
+      if: always()
+      run: |
+        docker stop keycloak || true
+        docker rm keycloak || true
