@@ -1,7 +1,7 @@
 # This workflow will build a golang project
 # For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
 
-name: Go Test
+name: Go Test with Keycloak
 
 on:
   push:
@@ -10,28 +10,97 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: keycloak_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
 
     steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Go
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Go
       uses: actions/setup-go@v4
       with:
         go-version: '1.24'
-
-    - name: Start services
+    
+    - name: Start Keycloak
       run: |
-        docker-compose up -d
-
-    - name: Wait for services
+        docker run -d \
+          --name keycloak \
+          --network host \
+          -p 9990:8080 \
+          -e KEYCLOAK_ADMIN=admin \
+          -e KEYCLOAK_ADMIN_PASSWORD=admin \
+          -e KC_PROXY=edge \
+          -e KC_DB=postgres \
+          -e KC_DB_URL_HOST=localhost \
+          -e KC_DB_URL_PORT=5432 \
+          -e KC_DB_SCHEMA=public \
+          -e KC_DB_URL_DATABASE=keycloak_db \
+          -e KC_DB_USERNAME=postgres \
+          -e KC_DB_PASSWORD=postgres \
+          -e KC_LOG_LEVEL=INFO \
+          -e KC_HEALTH_ENABLED=true \
+          quay.io/keycloak/keycloak:26.2.2 \
+          start-dev
+    
+    - name: Wait for Keycloak to be ready
       run: |
-        timeout 300 bash -c 'until docker-compose exec -T keycloak curl -f http://localhost:8080/health; do sleep 10; done'
+        echo "Waiting for Keycloak to start..."
+        timeout 300 bash -c 'until curl -f http://localhost:9990/health/ready; do 
+          echo "Waiting for Keycloak..."
+          sleep 10
+        done'
+        echo "Keycloak is ready!"
+    
+    - name: Create test realm
+      run: |
+        # Получаем admin token
+        ACCESS_TOKEN=$(curl -s -X POST http://localhost:9990/realms/master/protocol/openid-connect/token \
+          -H "Content-Type: application/x-www-form-urlencoded" \
+          -d "username=admin" \
+          -d "password=admin" \
+          -d "grant_type=password" \
+          -d "client_id=admin-cli" | jq -r '.access_token')
         
-    - name: Test
-      run: go test -v ./inner/...
-
-    - name: Stop services
+        # Создаем realm
+        curl -X POST http://localhost:9990/admin/realms \
+          -H "Authorization: Bearer $ACCESS_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "realm": "idm",
+            "enabled": true,
+            "displayName": "IDM Realm"
+          }'
+        
+        echo "Test realm created!"
+        
+        # Проверяем JWKS endpoint
+        timeout 60 bash -c 'until curl -f http://localhost:9990/realms/idm/protocol/openid-connect/certs; do 
+          echo "Waiting for JWKS endpoint..."
+          sleep 5
+        done'
+        echo "JWKS endpoint is ready!"
+    
+    - name: Run tests
+      run: |
+        go test -v ./inner/...
+    
+    - name: Stop Keycloak
       if: always()
-      run: docker-compose down
+      run: |
+        docker stop keycloak || true
+        docker rm keycloak || true
