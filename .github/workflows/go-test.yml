@@ -1,6 +1,3 @@
-# This workflow will build a golang project
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
-
 name: Go Test with Keycloak
 
 on:
@@ -26,38 +23,6 @@ jobs:
           --health-timeout=5s
           --health-retries=10
 
-      keycloak:
-        image: quay.io/keycloak/keycloak:26.2.2
-        ports:
-          - 9990:8080
-          - 9991:8443
-        volumes:
-          - realm_import:/opt/keycloak/data/import
-        env:
-          KC_BOOTSTRAP_ADMIN_USERNAME: admin
-          KC_BOOTSTRAP_ADMIN_PASSWORD: admin
-          KC_PROXY: edge
-          KC_DB: postgres
-          KC_DB_URL_HOST: postgres
-          KC_DB_URL_PORT: 5432
-          KC_DB_SCHEMA: public
-          KC_DB_URL_DATABASE: keycloak_db
-          KC_DB_USERNAME: postgres
-          KC_DB_PASSWORD: postgres
-          KC_LOG_LEVEL: INFO
-          KC_HEALTH_ENABLED: "true"
-          KC_METRICS_ENABLED: "false"
-          KC_IMPORT: /opt/keycloak/data/import/realm.json
-          KC_HOSTNAME_STRICT_HTTPS: "false"
-          KC_HTTP_ENABLED: "true"
-          KC_HOSTNAME: localhost
-        options: >-
-          --entrypoint /opt/keycloak/bin/kc.sh
-          --health-cmd="echo 'Checking if Keycloak is up'"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=30
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -67,10 +32,83 @@ jobs:
         with:
           go-version: '1.24'
 
+      - name: Prepare Keycloak import directory
+        run: |
+          mkdir -p /tmp/keycloak-import
+          cp docker/auth/import/realm.json /tmp/keycloak-import/
+
+      - name: Start Keycloak with PostgreSQL
+        run: |
+          docker run -d \
+            --name keycloak \
+            --network host \
+            -v /tmp/keycloak-import:/opt/keycloak/data/import \
+            -p 9990:8080 \
+            -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+            -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+            -e KC_DB=postgres \
+            -e KC_DB_URL_HOST=localhost \
+            -e KC_DB_URL_PORT=5432 \
+            -e KC_DB_SCHEMA=public \
+            -e KC_DB_URL_DATABASE=keycloak_db \
+            -e KC_DB_USERNAME=postgres \
+            -e KC_DB_PASSWORD=postgres \
+            -e KC_LOG_LEVEL=INFO \
+            -e KC_HEALTH_ENABLED=true \
+            -e KC_METRICS_ENABLED=false \
+            -e KC_HOSTNAME_STRICT_HTTPS=false \
+            -e KC_HTTP_ENABLED=true \
+            -e KC_HOSTNAME=localhost \
+            -e KC_HOSTNAME_STRICT=false \
+            quay.io/keycloak/keycloak:26.2.2 \
+            start-dev --import-realm
+
       - name: Wait for Keycloak to be ready
         run: |
-          sleep 10
+          echo "Waiting for Keycloak to start..."
+          timeout 300 bash -c 'until curl -f http://localhost:9990/health/ready 2>/dev/null; do 
+            echo "Waiting for Keycloak... ($(date))"
+            sleep 10
+          done'
+          
+          echo "Waiting for master realm..."
+          timeout 60 bash -c 'until curl -f http://localhost:9990/realms/master 2>/dev/null; do 
+            echo "Waiting for master realm... ($(date))"
+            sleep 5
+          done'
+          
+          echo "Waiting for imported realm..."
+          timeout 60 bash -c 'until curl -f http://localhost:9990/realms/idm 2>/dev/null; do 
+            echo "Waiting for imported realm... ($(date))"
+            sleep 5
+          done'
+          
+          echo "Keycloak is ready!"
+
+      - name: Verify realm import
+        run: |
+          echo "Checking available realms..."
+          curl -s http://localhost:9990/realms/master | jq -r '.realm // "master realm accessible"'
+          curl -s http://localhost:9990/realms/idm | jq -r '.realm // "idm realm accessible"'
+          
+          echo "Checking JWKS endpoint..."
+          curl -f http://localhost:9990/realms/idm/protocol/openid-connect/certs
 
       - name: Run tests
+        run: go test -v ./inner/...
+
+      - name: Show logs on failure
+        if: failure()
         run: |
-          go test -v ./inner/...
+          echo "=== Keycloak Logs ==="
+          docker logs keycloak || true
+          echo "=== Container Status ==="
+          docker ps -a || true
+          echo "=== Import Directory Contents ==="
+          ls -la /tmp/keycloak-import/ || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker stop keycloak || true
+          docker rm keycloak || true
