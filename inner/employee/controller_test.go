@@ -66,6 +66,9 @@ func (m *MockService) FindWithPagination(ctx context.Context, request PageReques
 	return args.Get(0).(PageResponse), args.Error(1)
 }
 
+// Переменная для определения режима мокирования
+var useKeycloakMocking = true
+
 // setupTestServer создает тестовый сервер с настроенной аутентификацией
 func setupTestServer(t *testing.T) (*MockService, *fiber.App) {
 	wd, _ := os.Getwd()
@@ -84,6 +87,11 @@ func setupTestServer(t *testing.T) (*MockService, *fiber.App) {
 		return fallback
 	}
 
+	keycloakJwkUrl := getEnv("KEYCLOAK_JWK_URL", web.DefaultJwkUrl)
+
+	// Определяем, нужно ли использовать мокирование
+	useKeycloakMocking = keycloakJwkUrl == web.DefaultJwkUrl
+
 	cfg := common.Config{
 		DbDriverName:   "postgres",
 		Dsn:            "localhost port=5432 user=wronguser password=wrongpass dbname=postgres sslmode=disable",
@@ -93,7 +101,7 @@ func setupTestServer(t *testing.T) (*MockService, *fiber.App) {
 		LogDevelopMode: true,
 		SslSert:        "ssl.cert",
 		SslKey:         "ssl.key",
-		KeycloakJwkUrl: getEnv("KEYCLOAK_JWK_URL", web.DefaultJwkUrl),
+		KeycloakJwkUrl: keycloakJwkUrl,
 	}
 
 	logger := common.NewLogger(cfg)
@@ -121,31 +129,40 @@ func createAuthenticatedRequest(t *testing.T, method, url string, body io.Reader
 		return req // без токена
 	}
 
-	cfg, _ := testutils.LoadTestConfig("..", "")
+	var accessToken string
 
-	// Мапа для соответствия ролей и пользователей
-	roleToUserMap := map[string]struct {
-		Username string
-		Password string
-	}{
-		web.IdmAdmin: {Username: cfg.Keycloak.Username1, Password: cfg.Keycloak.Password},
-		web.IdmUser:  {Username: cfg.Keycloak.Username2, Password: cfg.Keycloak.Password},
-	}
+	if useKeycloakMocking {
+		// Используем мокированный токен
+		accessToken = testutils.GenerateMockToken(userRoles)
+	} else {
+		// Используем реальный Keycloak
+		cfg, err := testutils.LoadTestConfig("..", "")
+		require.NoError(t, err)
 
-	// Дефолтные данные
-	username := "testuser"
-	password := "password"
+		// Мапа для соответствия ролей и пользователей
+		roleToUserMap := map[string]struct {
+			Username string
+			Password string
+		}{
+			web.IdmAdmin: {Username: cfg.Keycloak.Username1, Password: cfg.Keycloak.Password},
+			web.IdmUser:  {Username: cfg.Keycloak.Username2, Password: cfg.Keycloak.Password},
+		}
 
-	// Выбираем пользователя по первой роли
-	if len(userRoles) > 0 {
-		if creds, ok := roleToUserMap[userRoles[0]]; ok {
-			username = creds.Username
-			password = creds.Password
+		// Дефолтные данные
+		username := "testuser"
+		password := "password"
+
+		// Выбираем пользователя по первой роли
+		if len(userRoles) > 0 {
+			if creds, ok := roleToUserMap[userRoles[0]]; ok {
+				username = creds.Username
+				password = creds.Password
+			}
 		}
 
 		// Получаем реальный токен из Keycloak
 		ctx := context.Background()
-		accessToken, err := testutils.GetKeycloakToken(
+		token, err := testutils.GetKeycloakToken(
 			ctx,
 			cfg.Keycloak.Realm,        // realm
 			cfg.Keycloak.ClientID,     // client ID
@@ -154,10 +171,11 @@ func createAuthenticatedRequest(t *testing.T, method, url string, body io.Reader
 			password,                  // password
 		)
 		require.NoError(t, err)
-		require.NotEmpty(t, accessToken)
-
-		req.Header.Set("Authorization", "Bearer "+accessToken)
+		require.NotEmpty(t, token)
+		accessToken = token
 	}
+
+	req.Header.Set("Authorization", "Bearer "+accessToken)
 	return req
 }
 

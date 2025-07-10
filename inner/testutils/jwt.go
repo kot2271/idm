@@ -30,7 +30,7 @@ func GenerateRolelessToken() string {
 		"azp":   "idmapp",
 		"name":  "Test User",
 		"email": "test-user@test.com",
-		"iss":   "http://localhost:9990/realms/idm",
+		"iss":   "http://localhost:8080/realms/idm",
 		"roles": "offline_access",
 	}
 
@@ -40,4 +40,21 @@ func GenerateRolelessToken() string {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signedToken, _ := token.SignedString([]byte(secret))
 	return signedToken
+}
+
+// Функции для генерации мокированных токенов
+func GenerateMockToken(roles []string) string {
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"aud": "account",
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"iat": time.Now().Unix(),
+		"iss": "http://localhost:8080/realms/idm",
+		"sub": "test-user-id",
+		"realm_access": map[string]any{
+			"roles": roles,
+		},
+	})
+
+	tokenString, _ := token.SignedString(jwtSecret)
+	return tokenString
 }

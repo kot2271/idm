@@ -18,6 +18,9 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
+// Переменная для определения режима мокирования
+var useKeycloakMocking = true
+
 func SetupTestConfig() common.Config {
 	wd, _ := os.Getwd()
 	path := filepath.Join(wd, "..", "..", EnvFileName)
@@ -34,6 +37,12 @@ func SetupTestConfig() common.Config {
 		}
 		return fallback
 	}
+
+	keycloakJwkUrl := getEnv("KEYCLOAK_JWK_URL", DefaultJwkUrl)
+
+	// Определяем, нужно ли использовать мокирование
+	useKeycloakMocking = keycloakJwkUrl == DefaultJwkUrl
+
 	return common.Config{
 		DbDriverName:   "postgres",
 		Dsn:            "localhost port=5432 user=wronguser password=wrongpass dbname=postgres sslmode=disable",
@@ -43,7 +52,7 @@ func SetupTestConfig() common.Config {
 		LogDevelopMode: true,
 		SslSert:        "ssl.cert",
 		SslKey:         "ssl.key",
-		KeycloakJwkUrl: getEnv("KEYCLOAK_JWK_URL", DefaultJwkUrl),
+		KeycloakJwkUrl: keycloakJwkUrl,
 	}
 }
 
@@ -103,18 +112,30 @@ func TestApiV1GroupMiddleware(t *testing.T) {
 
 	req := httptest.NewRequest("GET", "/api/v1/test", nil)
 	req.Header.Set("Content-Type", "application/json")
-	ctx := context.Background()
-	cfg, _ := testutils.LoadTestConfig("..", "")
-	accessToken, err := testutils.GetKeycloakToken(
-		ctx,
-		cfg.Keycloak.Realm,
-		cfg.Keycloak.ClientID,
-		cfg.Keycloak.ClientSecret,
-		cfg.Keycloak.Username2,
-		cfg.Keycloak.Password,
-	)
-	require.NoError(t, err)
-	require.NotEmpty(t, accessToken)
+
+	var accessToken string
+
+	if useKeycloakMocking {
+		// Используем мокированный токен
+		accessToken = testutils.GenerateMockToken([]string{IdmUser})
+	} else {
+		// Используем реальный Keycloak
+		cfg, err := testutils.LoadTestConfig("..", "")
+		require.NoError(t, err)
+
+		ctx := context.Background()
+		token, err := testutils.GetKeycloakToken(
+			ctx,
+			cfg.Keycloak.Realm,
+			cfg.Keycloak.ClientID,
+			cfg.Keycloak.ClientSecret,
+			cfg.Keycloak.Username2,
+			cfg.Keycloak.Password,
+		)
+		require.NoError(t, err)
+		require.NotEmpty(t, token)
+		accessToken = token
+	}
 
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	resp, err := server.App.Test(req)
