@@ -16,3 +16,12 @@ type AlreadyExistsError struct {
 func (err AlreadyExistsError) Error() string {
 	return err.Message
 }
+
+// NotFoundError представляет ошибку, когда сущность не найдена
+type NotFoundError struct {
+	Message string `json:"message"`
+}
+
+func (err NotFoundError) Error() string {
+	return err.Message
+}

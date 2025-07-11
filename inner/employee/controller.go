@@ -6,7 +6,6 @@ import (
 	"idm/inner/common"
 	"idm/inner/web"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -41,20 +40,26 @@ func NewController(server *web.Server, employeeService Svc, logger *common.Logge
 // функция для регистрации маршрутов
 func (c *Controller) RegisterRoutes() {
 	c.logger.Info("Registering employee routes")
+	// полный маршрут получится "/api/v1/admin/employees"
+	// Маршруты для чтения (доступны пользователям с ролью IDM_ADMIN или IDM_USER)
+	c.server.GroupApiV1User.Get("/employees/page", c.FindEmployeesWithPagination)
+	c.server.GroupApiV1User.Get("/employees/:id", c.GetEmployee)
+	c.server.GroupApiV1User.Get("/employees", c.FindAllEmployee)
+	c.server.GroupApiV1User.Post("/employees/ids", c.FindEmployeeByIds)
+
 	// полный маршрут получится "/api/v1/employees"
-	api := c.server.GroupApiV1
-	api.Get("/employees/page", c.FindEmployeesWithPagination)
-	api.Post("/employees", c.CreateEmployee)
-	api.Get("/employees/:id", c.GetEmployee)
-	api.Delete("/employees/:id", c.DeleteEmployee)
-	api.Get("/employees", c.FindAllEmployee)
-	api.Post("/employees/ids", c.FindEmployeeByIds)
-	api.Delete("/employees", c.DeleteEmployeeByIds)
+	// Маршруты для создания, изменения и удаления (доступны только администраторам)
+	c.server.GroupApiV1Admin.Post("/employees", c.CreateEmployee)
+	c.server.GroupApiV1Admin.Delete("/employees/:id", c.DeleteEmployee)
+	c.server.GroupApiV1Admin.Delete("/employees", c.DeleteEmployeeByIds)
+
 	c.logger.Info("Employee routes registered successfully")
 }
 
-// функция-хендлер, которая будет вызываться при POST запросе по маршруту "/api/v1/employees"
+// функция-хендлер, которая будет вызываться при POST запросе по маршруту "/api/v1/admin/employees"
 // CreateEmployee Creates a new employee
+//
+// @Security		OAuth2AccessCode[write]
 //
 //	@Summary		Create an employee
 //	@Description	Create a new employee
@@ -71,6 +76,10 @@ func (c *Controller) CreateEmployee(ctx *fiber.Ctx) error {
 		zap.String("method", ctx.Method()),
 		zap.String("path", ctx.Path()),
 		zap.String("ip", ctx.IP()))
+
+	// Получаем роли пользователя для логирования
+	userRoles := web.GetUserRoles(ctx)
+	c.logger.Debug("User roles", zap.Strings("roles", userRoles))
 
 	// анмаршалим JSON body запроса в структуру CreateRequest
 	var request CreateRequest
@@ -102,44 +111,9 @@ func (c *Controller) CreateEmployee(ctx *fiber.Ctx) error {
 	})
 }
 
-// handleCreateEmployeeError обрабатывает ошибки при создании сотрудника
-func (c *Controller) handleCreateEmployeeError(ctx *fiber.Ctx, err error, request CreateRequest) error {
-	switch {
-	// Обработка ошибок валидации
-	case errors.As(err, &common.RequestValidationError{}):
-		c.logger.Warn("Create employee validation error",
-			zap.String("name", request.Name),
-			zap.Error(err),
-			zap.String("ip", ctx.IP()))
-
-		// Получаем детали ошибки валидации
-		var validationErr common.RequestValidationError
-		errors.As(err, &validationErr)
-
-		if validationErr.Data != nil {
-			return common.ErrResponse(ctx, fiber.StatusBadRequest, "Data validation error", validationErr.Data)
-		}
-		return common.ErrResponse(ctx, fiber.StatusBadRequest, validationErr.Message)
-
-	// Обработка ошибок существования
-	case errors.As(err, &common.AlreadyExistsError{}):
-		c.logger.Warn("Create employee conflict error",
-			zap.String("name", request.Name),
-			zap.Error(err),
-			zap.String("ip", ctx.IP()))
-		return common.ErrResponse(ctx, fiber.StatusConflict, err.Error())
-
-	// Обработка других ошибок
-	default:
-		c.logger.Error("Create employee internal error",
-			zap.String("name", request.Name),
-			zap.Error(err),
-			zap.String("ip", ctx.IP()))
-		return common.ErrResponse(ctx, fiber.StatusInternalServerError, "Internal server error")
-	}
-}
-
 // GetEmployee получает сотрудника по ID
+//
+// @Security		OAuth2AccessCode[read]
 //
 //	@Summary		Get employee by ID
 //	@Description	Accessing data about an employee using their ID
@@ -156,7 +130,14 @@ func (c *Controller) GetEmployee(ctx *fiber.Ctx) error {
 		zap.String("path", ctx.Path()),
 		zap.String("ip", ctx.IP()))
 
+	userRoles := web.GetUserRoles(ctx)
+	c.logger.Debug("User roles", zap.Strings("roles", userRoles))
+
 	idParam := ctx.Params("id")
+	if idParam == "" {
+		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Employee ID is required")
+	}
+
 	id, err := strconv.ParseInt(idParam, 10, 64)
 	if err != nil {
 		c.logger.Error("Invalid employee ID format",
@@ -169,11 +150,7 @@ func (c *Controller) GetEmployee(ctx *fiber.Ctx) error {
 	// context.Context нужен для поддержки отмены, дедлайнов и трейсинга запросов к БД.
 	employee, err := c.employeeService.FindById(ctx.Context(), id)
 	if err != nil {
-		c.logger.Error("Failed to find employee",
-			zap.Int64("id", id),
-			zap.Error(err),
-			zap.String("ip", ctx.IP()))
-		return common.ErrResponse(ctx, fiber.StatusNotFound, "Employee not found")
+		return c.handleFindEmployeeError(ctx, err, id)
 	}
 
 	c.logger.Debug("Employee retrieved successfully",
@@ -184,6 +161,8 @@ func (c *Controller) GetEmployee(ctx *fiber.Ctx) error {
 }
 
 // DeleteEmployee удаляет сотрудника по ID
+//
+// @Security		OAuth2AccessCode[write]
 //
 //	@Summary		Delete employee
 //	@Description	Removing an employee from the system by their ID
@@ -200,30 +179,27 @@ func (c *Controller) DeleteEmployee(ctx *fiber.Ctx) error {
 		zap.String("path", ctx.Path()),
 		zap.String("ip", ctx.IP()))
 
+	userRoles := web.GetUserRoles(ctx)
+	c.logger.Debug("User roles", zap.Strings("roles", userRoles))
+
 	idParam := ctx.Params("id")
+	if idParam == "" {
+		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Employee ID is required")
+	}
 
 	id, err := strconv.ParseInt(idParam, 10, 64)
 	if err != nil {
-		c.logger.Error("Invalid employee ID in delete request",
-			zap.String("id_param", ctx.Params("id")),
+		c.logger.Error("Invalid employee ID format",
+			zap.String("id_param", idParam),
 			zap.Error(err),
 			zap.String("ip", ctx.IP()))
-		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Invalid employee ID")
+		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Invalid employee ID format")
 	}
 
 	// context.Context нужен для поддержки отмены, дедлайнов и трейсинга запросов к БД.
 	err = c.employeeService.DeleteById(ctx.Context(), id)
 	if err != nil {
-		c.logger.Error("Failed to delete employee",
-			zap.Int64("id", id),
-			zap.Error(err),
-			zap.String("ip", ctx.IP()))
-
-		if strings.Contains(err.Error(), "not found") {
-			return common.ErrResponse(ctx, fiber.StatusNotFound, "Employee doesn't exists")
-		}
-
-		return common.ErrResponse(ctx, fiber.StatusInternalServerError, "Error when deleting an employee")
+		return c.handleDeleteEmployeeError(ctx, err, id)
 	}
 
 	c.logger.Info("Employee deleted successfully",
@@ -234,6 +210,8 @@ func (c *Controller) DeleteEmployee(ctx *fiber.Ctx) error {
 }
 
 // FindAllEmployee получает всех сотрудников
+//
+// @Security		OAuth2AccessCode[read]
 //
 //	@Summary		Get all employees
 //	@Description	Obtain a list of all employees.
@@ -247,6 +225,9 @@ func (c *Controller) FindAllEmployee(ctx *fiber.Ctx) error {
 		zap.String("method", ctx.Method()),
 		zap.String("path", ctx.Path()),
 		zap.String("ip", ctx.IP()))
+
+	userRoles := web.GetUserRoles(ctx)
+	c.logger.Debug("User roles", zap.Strings("roles", userRoles))
 
 	// context.Context нужен для поддержки отмены, дедлайнов и трейсинга запросов к БД.
 	employees, err := c.employeeService.FindAll(ctx.Context())
@@ -266,6 +247,8 @@ func (c *Controller) FindAllEmployee(ctx *fiber.Ctx) error {
 
 // FindEmployeeByIds получает сотрудников по списку ID
 //
+// @Security		OAuth2AccessCode[read]
+//
 //	@Summary		Get employees by ID list
 //	@Description	Obtaining information about employees based on their ID numbers
 //	@Tags			employees
@@ -281,6 +264,9 @@ func (c *Controller) FindEmployeeByIds(ctx *fiber.Ctx) error {
 		zap.String("method", ctx.Method()),
 		zap.String("path", ctx.Path()),
 		zap.String("ip", ctx.IP()))
+
+	userRoles := web.GetUserRoles(ctx)
+	c.logger.Debug("User roles", zap.Strings("roles", userRoles))
 
 	var request struct {
 		Ids []int64 `json:"ids" validate:"required,min=1"`
@@ -321,6 +307,8 @@ func (c *Controller) FindEmployeeByIds(ctx *fiber.Ctx) error {
 
 // FindEmployeesWithPagination получает сотрудников с пагинацией
 //
+// @Security		OAuth2AccessCode[read]
+//
 //	@Summary		Get employees with pagination
 //	@Description	Obtaining a list of employees with support for page-by-page output
 //	@Tags			employees
@@ -337,6 +325,9 @@ func (c *Controller) FindEmployeesWithPagination(ctx *fiber.Ctx) error {
 		zap.String("path", ctx.Path()),
 		zap.String("query", ctx.OriginalURL()),
 		zap.String("ip", ctx.IP()))
+
+	userRoles := web.GetUserRoles(ctx)
+	c.logger.Debug("User roles", zap.Strings("roles", userRoles))
 
 	// Получение параметров из query string
 	pageNumberStr := ctx.Query("pageNumber", "1")
@@ -399,6 +390,8 @@ func (c *Controller) FindEmployeesWithPagination(ctx *fiber.Ctx) error {
 
 // DeleteEmployeeByIds удаляет сотрудников по списку ID
 //
+// @Security		OAuth2AccessCode[write]
+//
 //	@Summary		Delete employees by ID list
 //	@Description	Removing employees from the system by their ID list
 //	@Tags			employees
@@ -414,12 +407,16 @@ func (c *Controller) DeleteEmployeeByIds(ctx *fiber.Ctx) error {
 		zap.String("path", ctx.Path()),
 		zap.String("ip", ctx.IP()))
 
+	userRoles := web.GetUserRoles(ctx)
+	c.logger.Debug("User roles", zap.Strings("roles", userRoles))
+
 	var request struct {
 		Ids []int64 `json:"ids" validate:"required,min=1"`
 	}
 
 	if err := ctx.BodyParser(&request); err != nil {
 		c.logger.Error("Missing ids parameter in delete request",
+			zap.Error(err),
 			zap.String("ip", ctx.IP()))
 		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Incorrect data format in the request")
 	}
@@ -449,4 +446,79 @@ func (c *Controller) DeleteEmployeeByIds(ctx *fiber.Ctx) error {
 		zap.String("ip", ctx.IP()))
 
 	return common.OkResponse(ctx, fiber.Map{"message": "Employees deleted successfully"})
+}
+
+// обрабатывает ошибки при создании сотрудника
+func (c *Controller) handleCreateEmployeeError(ctx *fiber.Ctx, err error, request CreateRequest) error {
+	switch {
+	// Обработка ошибок валидации
+	case errors.As(err, &common.RequestValidationError{}):
+		c.logger.Warn("Create employee validation error",
+			zap.String("name", request.Name),
+			zap.Error(err),
+			zap.String("ip", ctx.IP()))
+
+		// Получаем детали ошибки валидации
+		var validationErr common.RequestValidationError
+		errors.As(err, &validationErr)
+
+		if validationErr.Data != nil {
+			return common.ErrResponse(ctx, fiber.StatusBadRequest, "Data validation error", validationErr.Data)
+		}
+		return common.ErrResponse(ctx, fiber.StatusBadRequest, validationErr.Message)
+
+	// Обработка ошибок существования
+	case errors.As(err, &common.AlreadyExistsError{}):
+		c.logger.Warn("Create employee conflict error",
+			zap.String("name", request.Name),
+			zap.Error(err),
+			zap.String("ip", ctx.IP()))
+		return common.ErrResponse(ctx, fiber.StatusConflict, err.Error())
+
+	// Обработка других ошибок
+	default:
+		c.logger.Error("Create employee internal error",
+			zap.String("name", request.Name),
+			zap.Error(err),
+			zap.String("ip", ctx.IP()))
+		return common.ErrResponse(ctx, fiber.StatusInternalServerError, "Internal server error")
+	}
+}
+
+// обрабатывает ошибки при поиске сотрудника
+func (c *Controller) handleFindEmployeeError(ctx *fiber.Ctx, err error, id int64) error {
+	switch {
+	case errors.As(err, &common.NotFoundError{}):
+		c.logger.Warn("Employee not found",
+			zap.Int64("id", id),
+			zap.Error(err),
+			zap.String("ip", ctx.IP()))
+		return common.ErrResponse(ctx, fiber.StatusNotFound, "Employee not found")
+
+	default:
+		c.logger.Error("Find employee internal error",
+			zap.Int64("id", id),
+			zap.Error(err),
+			zap.String("ip", ctx.IP()))
+		return common.ErrResponse(ctx, fiber.StatusInternalServerError, "Internal server error")
+	}
+}
+
+// обрабатывает ошибки при удалении сотрудника
+func (c *Controller) handleDeleteEmployeeError(ctx *fiber.Ctx, err error, id int64) error {
+	switch {
+	case errors.As(err, &common.NotFoundError{}):
+		c.logger.Warn("Employee not found for deletion",
+			zap.Int64("id", id),
+			zap.Error(err),
+			zap.String("ip", ctx.IP()))
+		return common.ErrResponse(ctx, fiber.StatusNotFound, "Employee not found")
+
+	default:
+		c.logger.Error("Delete employee internal error",
+			zap.Int64("id", id),
+			zap.Error(err),
+			zap.String("ip", ctx.IP()))
+		return common.ErrResponse(ctx, fiber.StatusInternalServerError, "Internal server error")
+	}
 }

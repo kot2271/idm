@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"idm/docs"
 	"idm/inner/common"
 	"idm/inner/database"
@@ -15,17 +16,38 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/gofiber/fiber/v2/middleware/requestid"
 	"github.com/jmoiron/sqlx"
 	"go.uber.org/zap"
 )
 
-//	@title						IDM API documentation
-//	@description				Identity Management System API
-//	@host						localhost:8080
-//	@BasePath					/api/v1
-//	@schemes					http https
+//	@title									IDM API documentation
+//	@description							Identity Management System API
+//	@host									localhost:8080
+//	@BasePath								/api/v1
+//	@schemes								http https
 //
-//	@securityDefinitions.basic	BasicAuth
+//	@securityDefinitions.oauth2.application	OAuth2Application
+//	@tokenUrl								http://localhost:9990/realms/idm/protocol/openid-connect/token
+//	@scope.read								Read access
+//	@scope.write							Write access
+//
+//	@securityDefinitions.oauth2.implicit	OAuth2Implicit
+//	@authorizationUrl						http://localhost:9990/realms/idm/protocol/openid-connect/auth
+//	@scope.read								Read access
+//	@scope.write							Write access
+//
+//	@securityDefinitions.oauth2.password	OAuth2Password
+//	@tokenUrl								http://localhost:9990/realms/idm/protocol/openid-connect/token
+//	@scope.read								Read access
+//	@scope.write							Write access
+//
+//	@securityDefinitions.oauth2.accessCode	OAuth2AccessCode
+//	@tokenUrl								http://localhost:9990/realms/idm/protocol/openid-connect/token
+//	@authorizationUrl						http://localhost:9990/realms/idm/protocol/openid-connect/auth
+//	@scope.read								Read access
+//	@scope.write							Write access
 func main() {
 	// читаем конфиги
 	var cfg = common.GetConfig(".env")
@@ -55,7 +77,21 @@ func main() {
 	// запуск сервера в отдельной горутине
 	go func() {
 		logger.Info("Starting server on :8080")
-		if err := server.App.Listen(":8080"); err != nil {
+		// загружаем сертификаты
+		cer, err := tls.LoadX509KeyPair(cfg.SslSert, cfg.SslKey)
+		if err != nil {
+			logger.Panic("failed certificate loading: %s", zap.Error(err))
+		}
+		// создаём конфигурацию TLS сервера
+		tlsConfig := &tls.Config{Certificates: []tls.Certificate{cer}}
+		// создаём слушателя https соединения
+		ln, err := tls.Listen("tcp", ":8080", tlsConfig)
+		if err != nil {
+			logger.Panic("failed TLS listener creating: %s", zap.Error(err))
+		}
+		// запускаем веб-сервер с новым TLS слушателем
+		err = server.App.Listener(ln)
+		if err != nil {
 			logger.Panic("http server error: %s", zap.Error(err))
 		}
 	}()
@@ -109,10 +145,15 @@ func gracefulShutdown(server *web.Server, db *sqlx.DB, logger *common.Logger) {
 // buil функция, конструирующая наш веб-сервер
 func build(database *sqlx.DB, cfg common.Config, logger *common.Logger) *web.Server {
 	// создаём веб-сервер
-	var server = web.NewServer()
+	var server = web.NewServer(logger)
 
 	// Добавляем кастомный middleware для логирования
 	server.App.Use(web.CustomMiddleware(logger.Logger))
+	// Инициализируем Swagger с поддержкой OAuth2.0
+	web.InitSwaggerWithOAuth(server.App)
+	server.App.Use(requestid.New())
+	server.App.Use(recover.New())
+	server.GroupApi.Use(web.AuthMiddleware(logger))
 
 	// создаём валидатор
 	var vld = validator.New()

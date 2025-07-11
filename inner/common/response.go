@@ -50,3 +50,8 @@ func ValidationErrorResponse(ctx *fiber.Ctx, validationErr error) error {
 	// Если не JSON, просто возвращаем текст ошибки
 	return ErrResponse(ctx, fiber.StatusBadRequest, validationErr.Error())
 }
+
+// NewNotFoundError создаёт новую ошибку "not found"
+func NewNotFoundError(message string) error {
+	return NotFoundError{Message: message}
+}
