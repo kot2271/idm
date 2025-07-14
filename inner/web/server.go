@@ -7,6 +7,7 @@ import (
 	_ "idm/docs"
 
 	"github.com/gofiber/fiber/v2"
+	log "github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 	"go.uber.org/zap"
@@ -46,6 +47,30 @@ func NewServer(logger *common.Logger) *Server {
 
 	// Middleware для добавления уникального ID к каждому запросу
 	app.Use(requestid.New())
+
+	// Middleware для логирования тела запроса
+	app.Use(log.New(log.Config{
+		Format:     "${time} [${method}] ${path} - ${ip} - ${status} - ${latency} - Request ID: ${reqid}\n",
+		TimeFormat: "2006-01-02 15:04:05.000000",
+		TimeZone:   "Local",
+		Done: func(c *fiber.Ctx, logString []byte) {
+			// Логируется тело запроса для POST, PUT, PATCH
+			if c.Method() == "POST" || c.Method() == "PUT" || c.Method() == "PATCH" {
+				bodyData := c.Body()
+				if len(bodyData) > 0 {
+					bodyFields := common.ParseRequestBody(bodyData)
+					allFields := []zap.Field{
+						zap.String("method", c.Method()),
+						zap.String("path", c.Path()),
+						zap.String("ip", c.IP()),
+					}
+					allFields = append(allFields, bodyFields...)
+
+					logger.InfoCtx(c, "request body received", allFields...)
+				}
+			}
+		},
+	}))
 
 	groupInternal := app.Group("/internal")
 

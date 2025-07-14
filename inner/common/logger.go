@@ -1,7 +1,10 @@
 package common
 
 import (
+	"encoding/json"
+
 	"github.com/gofiber/contrib/fiberzap/v2"
+	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/log"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -58,6 +61,37 @@ func (l *Logger) setNewFiberZapLogger() {
 	log.SetLogger(fiberzapLogger)
 }
 
+// ParseRequestBody парсит тело запроса и возвращает структурированные поля для логирования
+// Экспортируем для использования в middleware
+func ParseRequestBody(bodyData []byte) []zap.Field {
+	var requestData map[string]any
+	if err := json.Unmarshal(bodyData, &requestData); err != nil {
+		// Если не удается распарсить JSON, логируем как есть
+		return []zap.Field{zap.String("body", string(bodyData))}
+	}
+
+	var fields []zap.Field
+
+	// Извлекаем поля для employee
+	if name, ok := requestData["name"].(string); ok {
+		fields = append(fields, zap.String("name", name))
+	}
+	if email, ok := requestData["email"].(string); ok {
+		fields = append(fields, zap.String("email", email))
+	}
+	if position, ok := requestData["position"].(string); ok {
+		fields = append(fields, zap.String("position", position))
+	}
+	if department, ok := requestData["department"].(string); ok {
+		fields = append(fields, zap.String("department", department))
+	}
+	if roleId, ok := requestData["role_id"].(float64); ok {
+		fields = append(fields, zap.Int64("role_id", int64(roleId)))
+	}
+
+	return fields
+}
+
 // parseLogLevel парсит уровень логирования из строки в zapcore.Level
 func parseLogLevel(level string) zapcore.Level {
 	switch level {
@@ -76,4 +110,71 @@ func parseLogLevel(level string) zapcore.Level {
 	default:
 		return zapcore.InfoLevel
 	}
+}
+
+// getRequestID извлекает requestId из контекста fiber
+func (l *Logger) getRequestID(ctx *fiber.Ctx) string {
+	requestID := ctx.Get("X-Request-ID")
+	if requestID == "" {
+		if reqID := ctx.Locals("requestid"); reqID != nil {
+			if id, ok := reqID.(string); ok {
+				requestID = id
+			}
+		}
+	}
+	return requestID
+}
+
+// InfoCtx логирует сообщение уровня Info с requestId из контекста
+func (l *Logger) InfoCtx(ctx *fiber.Ctx, msg string, fields ...zap.Field) {
+	requestID := l.getRequestID(ctx)
+	if requestID != "" {
+		fields = append(fields, zap.String("request_id", requestID))
+	}
+	l.Info(msg, fields...)
+}
+
+// DebugCtx логирует сообщение уровня Debug с requestId из контекста
+func (l *Logger) DebugCtx(ctx *fiber.Ctx, msg string, fields ...zap.Field) {
+	requestID := l.getRequestID(ctx)
+	if requestID != "" {
+		fields = append(fields, zap.String("request_id", requestID))
+	}
+	l.Debug(msg, fields...)
+}
+
+// ErrorCtx логирует сообщение уровня Error с requestId из контекста
+func (l *Logger) ErrorCtx(ctx *fiber.Ctx, msg string, fields ...zap.Field) {
+	requestID := l.getRequestID(ctx)
+	if requestID != "" {
+		fields = append(fields, zap.String("request_id", requestID))
+	}
+	l.Error(msg, fields...)
+}
+
+// WarnCtx логирует сообщение уровня Warn с requestId из контекста
+func (l *Logger) WarnCtx(ctx *fiber.Ctx, msg string, fields ...zap.Field) {
+	requestID := l.getRequestID(ctx)
+	if requestID != "" {
+		fields = append(fields, zap.String("request_id", requestID))
+	}
+	l.Warn(msg, fields...)
+}
+
+// FatalCtx логирует сообщение уровня Fatal с requestId из контекста
+func (l *Logger) FatalCtx(ctx *fiber.Ctx, msg string, fields ...zap.Field) {
+	requestID := l.getRequestID(ctx)
+	if requestID != "" {
+		fields = append(fields, zap.String("request_id", requestID))
+	}
+	l.Fatal(msg, fields...)
+}
+
+// PanicCtx логирует сообщение уровня Panic с requestId из контекста
+func (l *Logger) PanicCtx(ctx *fiber.Ctx, msg string, fields ...zap.Field) {
+	requestID := l.getRequestID(ctx)
+	if requestID != "" {
+		fields = append(fields, zap.String("request_id", requestID))
+	}
+	l.Panic(msg, fields...)
 }

@@ -125,7 +125,14 @@ func HasAnyRole(c *fiber.Ctx, roles []string) bool {
 
 func createJwtErrorHandler(logger *common.Logger) fiber.ErrorHandler {
 	return func(ctx *fiber.Ctx, err error) error {
-		logger.Error("Authentication failed",
+		// Добавление X-Request-ID в заголовок ответа
+		requestID := ctx.Get("X-Request-ID")
+		if requestID == "" {
+			requestID = ctx.Locals("requestid").(string)
+		}
+		ctx.Set("X-Request-ID", requestID)
+
+		logger.ErrorCtx(ctx, "authentication failed",
 			zap.Error(err),
 			zap.String("path", ctx.Path()),
 			zap.String("method", ctx.Method()),
