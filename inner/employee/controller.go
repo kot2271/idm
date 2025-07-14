@@ -72,26 +72,33 @@ func (c *Controller) RegisterRoutes() {
 //	@Failure		500		{object}	common.Response[any]	"Internal server error"
 //	@Router			/employees [post]
 func (c *Controller) CreateEmployee(ctx *fiber.Ctx) error {
-	c.logger.Info("Received create employee request",
+	// Добавляем X-Request-ID в заголовок ответа
+	requestID := ctx.Get("X-Request-ID")
+	if requestID == "" {
+		requestID = ctx.Locals("requestid").(string)
+	}
+	ctx.Set("X-Request-ID", requestID)
+
+	c.logger.InfoCtx(ctx, "Received create employee request",
 		zap.String("method", ctx.Method()),
 		zap.String("path", ctx.Path()),
 		zap.String("ip", ctx.IP()))
 
 	// Получаем роли пользователя для логирования
 	userRoles := web.GetUserRoles(ctx)
-	c.logger.Debug("User roles", zap.Strings("roles", userRoles))
+	c.logger.DebugCtx(ctx, "User roles", zap.Strings("roles", userRoles))
 
 	// анмаршалим JSON body запроса в структуру CreateRequest
 	var request CreateRequest
 	if err := ctx.BodyParser(&request); err != nil {
-		c.logger.Error("Failed to parse create employee request body",
+		c.logger.ErrorCtx(ctx, "Failed to parse create employee request body",
 			zap.Error(err),
 			zap.String("ip", ctx.IP()))
 		return common.ErrResponse(ctx, fiber.StatusBadRequest, "Incorrect data format in request")
 	}
 
-	// логируем тело запроса
-	c.logger.Debug("create employee: received request", zap.Any("request", request))
+	// логируем тело запроса (уже делается в middleware, но можем добавить дополнительную информацию)
+	c.logger.DebugCtx(ctx, "create employee: received request", zap.Any("request", request))
 
 	// context.Context нужен для поддержки отмены, дедлайнов и трейсинга запросов к БД.
 	newEmployeeId, err := c.employeeService.CreateEmployee(ctx.Context(), request)
@@ -99,7 +106,7 @@ func (c *Controller) CreateEmployee(ctx *fiber.Ctx) error {
 		return c.handleCreateEmployeeError(ctx, err, request)
 	}
 
-	c.logger.Info("Employee created successfully",
+	c.logger.InfoCtx(ctx, "Employee created successfully",
 		zap.String("name", request.Name),
 		zap.Int64("id", newEmployeeId),
 		zap.String("ip", ctx.IP()))
@@ -477,7 +484,7 @@ func (c *Controller) handleCreateEmployeeError(ctx *fiber.Ctx, err error, reques
 
 	// Обработка других ошибок
 	default:
-		c.logger.Error("Create employee internal error",
+		c.logger.ErrorCtx(ctx, "create employee internal error",
 			zap.String("name", request.Name),
 			zap.Error(err),
 			zap.String("ip", ctx.IP()))
